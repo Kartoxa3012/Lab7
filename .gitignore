@@ -1,0 +1,28 @@
+# Java compiled files
+*.class
+target/
+*.jar
+
+# IDE
+.idea/
+*.iml
+*.ipr
+*.iws
+.settings/
+.project
+.classpath
+.vscode/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+
+# Data
+data.csv
+*.csv
+
+# Maven wrapper (оставляем, если нужно)
+!.mvn/wrapper/maven-wrapper.jar

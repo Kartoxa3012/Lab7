@@ -12,6 +12,8 @@ import java.io.IOException;
 import java.nio.channels.SelectionKey;
 import java.nio.channels.Selector;
 import java.util.Iterator;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 
 /**
  * Главный класс сервера (неблокирующий).
@@ -28,97 +30,96 @@ public class Server {
     private ResponseSender responseSender;
     private CollectionManager collectionManager;
     private boolean running;
+    private static final Logger logger = LogManager.getLogger(Server.class);
+
 
     public Server(int port, String filePath) {
         this.port = port;
         this.filePath = filePath;
         this.running = true;
+
+        logger.info("Создание экземпляра сервера, порт: {}, файл: {}", port, filePath);
     }
 
     /**
      * Инициализирует все модули сервера.
      */
     private void init() throws IOException {
-        // Загрузка коллекции из файла
+        logger.info("Инициализация сервера...");
+
         collectionManager = new CollectionManager();
         collectionManager.loadFromFile(filePath);
+        logger.info("Загружено {} элементов из файла", collectionManager.size());
 
-        // Модуль приёма подключений
         connectionAcceptor = new ConnectionAcceptor(port);
         connectionAcceptor.start();
+        logger.debug("ConnectionAcceptor запущен");
 
-        // Остальные модули
         requestReader = new RequestReader();
+        logger.debug("RequestReader создан");
+
         CommandHandler commandHandler = new CommandHandler(collectionManager);
         commandProcessor = new CommandProcessor(commandHandler);
+        logger.debug("CommandProcessor создан");
+
         responseSender = new ResponseSender();
+        logger.debug("ResponseSender создан");
+
+        Runtime.getRuntime().addShutdownHook(new Thread(() -> {
+            logger.info("Shutdown hook активирован, сохранение коллекции...");
+            collectionManager.saveToFile(filePath);
+            logger.info("Коллекция сохранена, сервер завершает работу");
+        }));
+
+        logger.info("Инициализация сервера завершена успешно");
     }
 
     /**
      * Запускает сервер в неблокирующем режиме.
      */
     public void start() {
+        logger.info("Запуск сервера...");
         try {
             init();
-            System.out.println("Сервер запущен (неблокирующий режим). Ожидание запросов...");
-
-            // Добавляем хук для сохранения при завершении
-            Runtime.getRuntime().addShutdownHook(new Thread(() -> {
-                System.out.println("Сохранение коллекции перед завершением...");
-                collectionManager.saveToFile(filePath);
-            }));
-
-            Selector selector = connectionAcceptor.getSelector();
+            java.nio.channels.Selector selector = connectionAcceptor.getSelector();
+            logger.info("Сервер запущен на порту {}, ожидание запросов...", port);
 
             while (running && connectionAcceptor.isRunning()) {
-                selector.select(100); // таймаут 100 мс
-                Iterator<SelectionKey> keyIterator = selector.selectedKeys().iterator();
+                selector.select(100);
+                var keyIterator = selector.selectedKeys().iterator();
 
                 while (keyIterator.hasNext()) {
-                    SelectionKey key = keyIterator.next();
+                    var key = keyIterator.next();
                     keyIterator.remove();
 
                     if (key.isReadable()) {
                         if (requestReader.read(connectionAcceptor.getChannel())) {
-                            // Обрабатываем команду
-                            CommandResponse response = commandProcessor.process(requestReader.getCommand());
-                            // Отправляем ответ
+                            logger.debug("Получен запрос, запуск обработки");
+                            var response = commandProcessor.process(requestReader.getCommand());
                             responseSender.send(connectionAcceptor.getChannel(), response, requestReader.getClientAddress());
+                            logger.debug("Обработка запроса завершена");
                         }
                     }
                 }
             }
         } catch (IOException e) {
-            System.err.println("Ошибка сервера: " + e.getMessage());
+            logger.error("Критическая ошибка сервера: {}", e.getMessage(), e);
         } finally {
             stop();
         }
     }
 
-    /**
-     * Останавливает сервер.
-     */
     public void stop() {
+        logger.info("Остановка сервера...");
         running = false;
         if (connectionAcceptor != null) {
             connectionAcceptor.stop();
             try {
                 connectionAcceptor.close();
             } catch (IOException e) {
-                System.err.println("Ошибка при закрытии ресурсов: " + e.getMessage());
+                logger.error("Ошибка при закрытии ресурсов: {}", e.getMessage());
             }
         }
-    }
-
-    public static void main(String[] args) {
-        String csvFile = System.getenv("SPACE_MARINES_DATA");
-        if (csvFile == null || csvFile.trim().isEmpty()) {
-            System.err.println("Переменная окружения SPACE_MARINES_DATA не установлена");
-            System.exit(1);
-        }
-
-        int port = 8080;
-        Server server = new Server(port, csvFile);
-        server.start();
+        logger.info("Сервер остановлен");
     }
 }

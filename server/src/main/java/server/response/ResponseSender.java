@@ -7,6 +7,8 @@ import java.io.IOException;
 import java.net.SocketAddress;
 import java.nio.ByteBuffer;
 import java.nio.channels.DatagramChannel;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 
 /**
  * Модуль отправки ответов клиенту (неблокирующий).
@@ -15,6 +17,7 @@ import java.nio.channels.DatagramChannel;
  * @author Kovalenko Vlad, 504673
  */
 public class ResponseSender {
+    private static final Logger logger = LogManager.getLogger(ResponseSender.class);
     private final ByteBuffer buffer = ByteBuffer.allocate(65507);
 
     /**
@@ -31,5 +34,8 @@ public class ResponseSender {
         buffer.put(data);
         buffer.flip();
         channel.send(buffer, clientAddress);
+
+        logger.debug("Отправлен ответ клиенту {}: {}", clientAddress, response.getMessage());
+        logger.info("Ответ отправлен {}: {} байт", clientAddress, data.length);
     }
 }

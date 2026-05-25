@@ -7,6 +7,8 @@ import java.io.IOException;
 import java.net.SocketAddress;
 import java.nio.ByteBuffer;
 import java.nio.channels.DatagramChannel;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 
 /**
  * Модуль чтения запроса (неблокирующий).
@@ -18,6 +20,7 @@ public class RequestReader {
     private final ByteBuffer buffer = ByteBuffer.allocate(65507);
     private SocketAddress clientAddress;
     private Command command;
+    private static final Logger logger = LogManager.getLogger(RequestReader.class);
 
     /**
      * Читает запрос из канала.
@@ -30,16 +33,22 @@ public class RequestReader {
         buffer.clear();
         clientAddress = channel.receive(buffer);
         if (clientAddress == null) {
+            logger.trace("Нет данных для чтения");
             return false;
         }
+
+        logger.debug("Получен запрос от {}", clientAddress);
+
         buffer.flip();
         byte[] data = new byte[buffer.remaining()];
         buffer.get(data);
         try {
             command = (Command) Serializer.deserialize(data);
+            logger.info("Получена команда: {} от {}", command.getClass().getSimpleName(), clientAddress);
             return true;
+
         } catch (Exception e) {
-            System.err.println("Ошибка десериализации команды: " + e.getMessage());
+            logger.error("Ошибка десериализации команды от {}: {}", clientAddress, e.getMessage());
             return false;
         }
     }

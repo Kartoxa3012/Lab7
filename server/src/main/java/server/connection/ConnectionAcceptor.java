@@ -1,5 +1,6 @@
 package server.connection;
-
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 import java.io.IOException;
 import java.net.InetSocketAddress;
 import java.nio.channels.DatagramChannel;
@@ -13,6 +14,7 @@ import java.nio.channels.Selector;
  * @author Kovalenko Vlad, 504673
  */
 public class ConnectionAcceptor {
+    private static final Logger logger = LogManager.getLogger(ConnectionAcceptor.class);
     private final int port;
     private DatagramChannel channel;
     private Selector selector;
@@ -29,12 +31,16 @@ public class ConnectionAcceptor {
      * @throws IOException если ошибка ввода-вывода
      */
     public void start() throws IOException {
+        logger.info("Запуск модуля приёма подключений на порту {}", port);
+
         channel = DatagramChannel.open();
         channel.configureBlocking(false);
         channel.socket().bind(new InetSocketAddress(port));
         selector = Selector.open();
         channel.register(selector, SelectionKey.OP_READ);
-        System.out.println("Модуль приёма подключений запущен на порту " + port);
+
+        logger.debug("Канал открыт, неблокирующий режим включён");
+        logger.info("Сервер успешно запущен на порту {}", port);
     }
 
     public DatagramChannel getChannel() {
@@ -50,6 +56,7 @@ public class ConnectionAcceptor {
     }
 
     public void stop() {
+        logger.info("Остановка модуля приёма подключений");
         running = false;
         if (selector != null) {
             selector.wakeup();
@@ -57,11 +64,13 @@ public class ConnectionAcceptor {
     }
 
     public void close() throws IOException {
+        logger.debug("Закрытие ресурсов ConnectionAcceptor");
         if (selector != null) {
             selector.close();
         }
         if (channel != null) {
             channel.close();
         }
+        logger.info("Ресурсы ConnectionAcceptor закрыты");
     }
 }

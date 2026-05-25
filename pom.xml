@@ -13,7 +13,10 @@
         <maven.compiler.source>17</maven.compiler.source>
         <maven.compiler.target>17</maven.compiler.target>
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
+        <log4j2.version>2.23.1</log4j2.version>
     </properties>
+
+
 
     <modules>
         <module>common</module>

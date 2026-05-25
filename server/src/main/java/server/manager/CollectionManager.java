@@ -3,7 +3,8 @@ package server.manager;
 import common.model.SpaceMarine;
 import server.utility.CsvReader;
 import server.utility.CsvWriter;
-
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 import java.io.IOException;
 import java.time.LocalDateTime;
 import java.util.*;
@@ -18,11 +19,18 @@ import java.util.*;
  * @author Kovalenko Vlad, 504673
  */
 public class CollectionManager {
+    private static final Logger logger = LogManager.getLogger(CollectionManager.class);
     /** Основное хранилище (ключ — строка, значение — объект). */
     private final Hashtable<String, SpaceMarine> collection = new Hashtable<>();
     /** Дата инициализации коллекции (создания менеджера). */
     private final LocalDateTime initDate = LocalDateTime.now();
     private String filePath;
+
+    public CollectionManager() {
+        logger.info("CollectionManager инициализирован");
+        logger.debug("Дата инициализации: {}", initDate);
+    }
+
 
     /**
      * Возвращает всю коллекцию.
@@ -30,6 +38,7 @@ public class CollectionManager {
      * @return Hashtable, содержащая все элементы
      */
     public Hashtable<String, SpaceMarine> getCollection() {
+        logger.trace("getCollection: возвращена коллекция (размер: {})", collection.size());
         return collection;
     }
 
@@ -48,6 +57,8 @@ public class CollectionManager {
      * @return количество элементов
      */
     public int size() {
+        int size = collection.size();
+        logger.trace("size: текущий размер коллекции = {}", size);
         return collection.size();
     }
 
@@ -58,7 +69,13 @@ public class CollectionManager {
      * @return элемент или null, если ключ отсутствует
      */
     public SpaceMarine getByKey(String key) {
-        return collection.get(key);
+        SpaceMarine marine = collection.get(key);
+        if (marine == null) {
+            logger.debug("getByKey: элемент с ключом '{}' не найден", key);
+        } else {
+            logger.trace("getByKey: найден элемент с ключом '{}', id={}", key, marine.getId());
+        }
+        return marine;
     }
 
     /**
@@ -68,7 +85,9 @@ public class CollectionManager {
      * @return true, если ключ существует
      */
     public boolean containsKey(String key) {
-        return collection.containsKey(key);
+        boolean exists = collection.containsKey(key);
+        logger.trace("containsKey: ключ '{}' {} в коллекции", key, exists ? "присутствует" : "отсутствует");
+        return exists;
     }
 
     /**
@@ -79,7 +98,18 @@ public class CollectionManager {
      * @return предыдущее значение или null
      */
     public SpaceMarine put(String key, SpaceMarine marine) {
-        return collection.put(key, marine);
+        SpaceMarine previous = collection.get(key);
+        if (previous != null) {
+            logger.info("Замена элемента: ключ='{}', старый id={}, новый id={}, новое имя='{}'",
+                    key, previous.getId(), marine.getId(), marine.getName());
+        } else {
+            logger.debug("Добавление нового элемента: ключ='{}', id={}, имя='{}'",
+                    key, marine.getId(), marine.getName());
+        }
+
+        SpaceMarine result = collection.put(key, marine);
+        logger.debug("put: текущий размер коллекции = {}", collection.size());
+        return result;
     }
 
     /**
@@ -89,14 +119,24 @@ public class CollectionManager {
      * @return удалённый элемент или null
      */
     public SpaceMarine remove(String key) {
-        return collection.remove(key);
+        SpaceMarine removed = collection.remove(key);
+        if (removed != null) {
+            logger.info("Удалён элемент: ключ='{}', id={}, имя='{}'",
+                    key, removed.getId(), removed.getName());
+        } else {
+            logger.warn("Попытка удаления несуществующего ключа: '{}'", key);
+        }
+        logger.debug("remove: текущий размер коллекции = {}", collection.size());
+        return removed;
     }
 
     /**
      * Очищает коллекцию.
      */
     public void clear() {
+        int oldSize = collection.size();
         collection.clear();
+        logger.info("Коллекция очищена. Удалено {} элементов", oldSize);
     }
 
     /**
@@ -108,9 +148,11 @@ public class CollectionManager {
     public String findKeyById(Integer id) {
         for (Map.Entry<String, SpaceMarine> entry : collection.entrySet()) {
             if (entry.getValue().getId().equals(id)) {
+                logger.trace("findKeyById: id={} соответствует ключу '{}'", id, entry.getKey());
                 return entry.getKey();
             }
         }
+        logger.debug("findKeyById: элемент с id={} не найден", id);
         return null;
     }
 
@@ -123,11 +165,19 @@ public class CollectionManager {
      * @return новый уникальный id
      */
     public Integer generateId() {
-        if (collection.isEmpty()) return 1;
-        return collection.values().stream()
+        if (collection.isEmpty()) {
+            logger.debug("generateId: коллекция пуста, возвращаем 1");
+            return 1;
+        }
+
+        int maxId = collection.values().stream()
                 .mapToInt(SpaceMarine::getId)
                 .max()
-                .getAsInt() + 1;
+                .getAsInt();
+
+        int newId = maxId + 1;
+        logger.debug("Сгенерирован новый id: максимальный id = {}, новый id = {}", maxId, newId);
+        return newId;
     }
 
     /**
@@ -141,6 +191,7 @@ public class CollectionManager {
     public List<SpaceMarine> sortedValues() {
         List<SpaceMarine> list = new ArrayList<>(collection.values());
         Collections.sort(list);
+        logger.trace("возвращено {} отсортированных элементов", list.size());
         return list;
     }
 
@@ -150,8 +201,11 @@ public class CollectionManager {
      * @param filePath путь к файлу
      */
     public void loadFromFile(String filePath) {
+        this.filePath = filePath;
+        logger.info("Загрузка коллекции из файла: {}", filePath);
+
         CsvReader.readCsv(filePath, this);
-        System.out.println("Коллекция загружена из файла: " + filePath);
+        logger.info("Коллекция загружена. Загружено {} элементов", collection.size());
     }
 
     /**
@@ -160,19 +214,24 @@ public class CollectionManager {
      * @param filePath путь к файлу
      */
     public void saveToFile(String filePath) {
+        this.filePath = filePath;
+        logger.info("Сохранение коллекции в файл: {} (количество элементов: {})", filePath, collection.size());
+
         try {
             CsvWriter.writeCsv(filePath, this);
-            System.out.println("Коллекция сохранена в файл: " + filePath);
+            logger.info("Коллекция успешно сохранена в файл: {}", filePath);
         } catch (IOException e) {
-            System.err.println("Ошибка при сохранении коллекции: " + e.getMessage());
+            logger.error("Ошибка при сохранении коллекции в файл {}: {}", filePath, e.getMessage(), e);
         }
     }
 
     public void setFilePath(String filePath) {
         this.filePath = filePath;
+        logger.debug("Установлен путь к файлу: {}", filePath);
     }
 
     public String getFilePath() {
         return filePath;
+
     }
 }

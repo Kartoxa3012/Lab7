@@ -2,27 +2,31 @@ package client;
 
 import client.util.InputManager;
 import common.Command;
-import common.commands.*;
-import common.model.AstartesCategory;
-import common.model.SpaceMarine;
 import common.CommandResponse;
+import common.commands.*;
+import common.model.SpaceMarine;
+import common.model.AstartesCategory;
 import common.util.Serializer;
 
-
-import java.io.IOException;
+import java.io.*;
 import java.net.*;
+import java.util.HashSet;
 import java.util.Scanner;
+import java.util.Set;
 
 /**
  * UDP-клиент для взаимодействия с сервером.
  * <p>
  * Читает команды из консоли, сериализует их, отправляет на сервер,
  * получает ответ и выводит результат пользователю.
+ * Поддерживает выполнение скриптов с защитой от рекурсии.
  * </p>
  *
  * @author Kovalenko Vlad, 504673
  */
 public class Client {
+    private static final Set<String> activeScripts = new HashSet<>();
+
     private final String host;
     private final int port;
     private final int timeout;
@@ -34,9 +38,9 @@ public class Client {
     /**
      * Конструктор клиента.
      *
-     * @param host   адрес сервера
-     * @param port   порт сервера
-     * @param timeout таймаут ожидания ответа в миллисекундах
+     * @param host       адрес сервера
+     * @param port       порт сервера
+     * @param timeout    таймаут ожидания ответа в миллисекундах
      * @param maxRetries максимальное количество попыток отправки
      */
     public Client(String host, int port, int timeout, int maxRetries) {
@@ -62,7 +66,6 @@ public class Client {
                 System.out.print("> ");
                 String line = inputManager.readString("", true);
                 if (line.isEmpty()) continue;
-
                 processCommand(line);
             }
         } catch (SocketException e) {
@@ -91,6 +94,13 @@ public class Client {
                     break;
                 case "exit":
                     exit();
+                    break;
+                case "execute_script":
+                    if (argument == null) {
+                        System.out.println("Ошибка: укажите имя файла.");
+                        return;
+                    }
+                    executeScript(argument);
                     break;
                 case "info":
                 case "show":
@@ -177,6 +187,7 @@ public class Client {
         System.out.println("  filter_by_category <category> - фильтр по категории");
         System.out.println("  filter_contains_name <name> - фильтр по имени");
         System.out.println("  print_field_descending_health - здоровье по убыванию");
+        System.out.println("  execute_script <file> - выполнить скрипт из файла");
         System.out.println("  exit - завершить клиент");
     }
 
@@ -186,6 +197,57 @@ public class Client {
     private void exit() {
         System.out.println("Завершение клиента.");
         running = false;
+    }
+
+    /**
+     * Выполняет скрипт из файла.
+     *
+     * @param fileName имя файла скрипта
+     */
+    private void executeScript(String fileName) {
+        File file = new File(fileName);
+
+        // Проверка существования файла
+        if (!file.exists()) {
+            System.out.println("Файл не найден: " + fileName);
+            return;
+        }
+
+        // Проверка прав на чтение
+        if (!file.canRead()) {
+            System.out.println("Нет прав на чтение файла: " + fileName);
+            return;
+        }
+
+        // Защита от рекурсии
+        String absolutePath;
+        try {
+            absolutePath = file.getCanonicalPath();
+        } catch (IOException e) {
+            absolutePath = file.getAbsolutePath();
+        }
+
+        if (activeScripts.contains(absolutePath)) {
+            System.out.println("Обнаружена рекурсия! Скрипт " + fileName + " уже выполняется.");
+            return;
+        }
+
+        activeScripts.add(absolutePath);
+
+        try (Scanner scanner = new Scanner(file)) {
+            int lineNum = 0;
+            while (scanner.hasNextLine()) {
+                String line = scanner.nextLine().trim();
+                lineNum++;
+                if (line.isEmpty() || line.startsWith("#")) continue;
+                System.out.println("[скрипт " + fileName + ":" + lineNum + "] " + line);
+                processCommand(line);
+            }
+        } catch (FileNotFoundException e) {
+            System.out.println("Ошибка открытия файла: " + e.getMessage());
+        } finally {
+            activeScripts.remove(absolutePath);
+        }
     }
 
     /**
@@ -328,7 +390,7 @@ public class Client {
     /**
      * Точка входа в клиентское приложение.
      *
-     * @param args аргументы командной строки (host, port)
+     * @param args аргументы командной строки: host, port
      */
     public static void main(String[] args) {
         String host = "localhost";
@@ -345,6 +407,7 @@ public class Client {
             }
         }
 
+        System.out.println("Подключение к " + host + ":" + port);
         Client client = new Client(host, port, timeout, maxRetries);
         client.start();
     }

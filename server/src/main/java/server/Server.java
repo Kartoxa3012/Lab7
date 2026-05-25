@@ -122,4 +122,30 @@ public class Server {
         }
         logger.info("Сервер остановлен");
     }
+
+    public static void main(String[] args) {
+        logger.info("Запуск серверного приложения...");
+
+        String csvFile = System.getenv("SPACE_MARINES_DATA");
+        if (csvFile == null || csvFile.trim().isEmpty()) {
+            logger.error("Переменная окружения SPACE_MARINES_DATA не установлена");
+            System.err.println("Ошибка: переменная окружения SPACE_MARINES_DATA не установлена");
+            System.exit(1);
+        }
+
+        int port = 8080;
+        if (args.length > 0) {
+            try {
+                port = Integer.parseInt(args[0]);
+                logger.info("Порт задан из аргументов: {}", port);
+            } catch (NumberFormatException e) {
+                logger.warn("Неверный формат порта, используется порт по умолчанию: {}", port);
+            }
+        }
+
+        logger.info("Порт: {}, файл данных: {}", port, csvFile);
+
+        Server server = new Server(port, csvFile);
+        server.start();
+    }
 }

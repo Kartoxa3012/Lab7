@@ -7,14 +7,11 @@ import org.apache.logging.log4j.Logger;
 
 import java.time.LocalDateTime;
 import java.util.*;
-import java.util.concurrent.locks.ReadWriteLock;
-import java.util.concurrent.locks.ReentrantReadWriteLock;
 
 public class CollectionManager {
     private static final Logger logger = LogManager.getLogger(CollectionManager.class);
 
-    private final Map<String, SpaceMarine> cache = new HashMap<>();
-    private final ReadWriteLock lock = new ReentrantReadWriteLock();
+    private final Map<String, SpaceMarine> cache = Collections.synchronizedMap(new HashMap<>());
     private final SpaceMarineDao dao = new SpaceMarineDao();
     private final LocalDateTime initDate = LocalDateTime.now();
 
@@ -22,14 +19,9 @@ public class CollectionManager {
         logger.info("Загрузка коллекции из базы данных...");
         try {
             List<SpaceMarine> list = dao.loadAll();
-            lock.writeLock().lock();
-            try {
-                cache.clear();
-                for (SpaceMarine marine : list) {
-                    cache.put(marine.getKey(), marine);
-                }
-            } finally {
-                lock.writeLock().unlock();
+            cache.clear();
+            for (SpaceMarine marine : list) {
+                cache.put(marine.getKey(), marine);
             }
             logger.info("Коллекция загружена. Загружено {} элементов", cache.size());
         } catch (Exception e) {
@@ -38,74 +30,42 @@ public class CollectionManager {
     }
 
     public void addToCache(SpaceMarine marine) {
-        lock.writeLock().lock();
-        try {
-            cache.put(marine.getKey(), marine);
-            logger.debug("Элемент добавлен в кэш: key={}", marine.getKey());
-        } finally {
-            lock.writeLock().unlock();
-        }
+        cache.put(marine.getKey(), marine);
+        logger.debug("Элемент добавлен в кэш: key={}", marine.getKey());
     }
 
     public void removeFromCache(String key) {
-        lock.writeLock().lock();
-        try {
-            cache.remove(key);
-            logger.debug("Элемент удалён из кэша: key={}", key);
-        } finally {
-            lock.writeLock().unlock();
-        }
+        cache.remove(key);
+        logger.debug("Элемент удалён из кэша: key={}", key);
     }
 
     public SpaceMarine getFromCache(String key) {
-        lock.readLock().lock();
-        try {
-            return cache.get(key);
-        } finally {
-            lock.readLock().unlock();
-        }
+        return cache.get(key);
     }
 
     public boolean containsKey(String key) {
-        lock.readLock().lock();
-        try {
-            return cache.containsKey(key);
-        } finally {
-            lock.readLock().unlock();
-        }
+        return cache.containsKey(key);
     }
 
     public List<SpaceMarine> getSortedValues() {
-        lock.readLock().lock();
-        try {
+        synchronized (cache) {
             List<SpaceMarine> list = new ArrayList<>(cache.values());
             Collections.sort(list);
-            logger.trace("Возвращено {} отсортированных элементов", list.size());
             return list;
-        } finally {
-            lock.readLock().unlock();
-        }
-    }
-
-    public Map<String, SpaceMarine> getCollection() {
-        lock.readLock().lock();
-        try {
-            return new HashMap<>(cache);
-        } finally {
-            lock.readLock().unlock();
         }
     }
 
     public int size() {
-        lock.readLock().lock();
-        try {
-            return cache.size();
-        } finally {
-            lock.readLock().unlock();
-        }
+        return cache.size();
     }
 
     public LocalDateTime getInitDate() {
         return initDate;
+    }
+
+    public Map<String, SpaceMarine> getCollection() {
+        synchronized (cache) {
+            return new HashMap<>(cache);
+        }
     }
 }

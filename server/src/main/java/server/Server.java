@@ -28,7 +28,6 @@ public class Server {
     private static final Logger logger = LogManager.getLogger(Server.class);
 
     private final int port;
-    private final String dbUrl;
     private ConnectionAcceptor connectionAcceptor;
     private RequestReader requestReader;
     private RequestProcessor requestProcessor;
@@ -37,11 +36,10 @@ public class Server {
     private CollectionManager collectionManager;
     private boolean running;
 
-    public Server(int port, String dbUrl) {
+    public Server(int port) {
         this.port = port;
-        this.dbUrl = dbUrl;
         this.running = true;
-        logger.info("Создание сервера: порт={}, БД={}", port, dbUrl);
+        logger.info("Создание сервера: порт={}", port);
     }
 
     private void init() throws IOException {
@@ -125,12 +123,6 @@ public class Server {
     }
 
     public static void main(String[] args) {
-        String dbUrl = System.getenv("DB_URL");
-        if (dbUrl == null || dbUrl.trim().isEmpty()) {
-            System.err.println("Ошибка: переменная окружения DB_URL не установлена");
-            System.exit(1);
-        }
-
         int port = 8080;
         if (args.length > 0) {
             try {
@@ -140,7 +132,7 @@ public class Server {
             }
         }
 
-        Server server = new Server(port, dbUrl);
+        Server server = new Server(port);
         server.start();
     }
 }

@@ -11,6 +11,7 @@ import org.apache.logging.log4j.Logger;
 
 import java.sql.SQLException;
 import java.util.*;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.stream.Collectors;
 
 /**
@@ -28,6 +29,10 @@ public class CommandHandler {
 
     // Текущий авторизованный пользователь для каждого потока
     private final ThreadLocal<User> currentUser = new ThreadLocal<>();
+
+    // Блокировки для синхронизации операций с ключами
+    private final Object insertLock = new Object();
+    private final Map<String, Object> keyLocks = new ConcurrentHashMap<>();
 
     public CommandHandler(CollectionManager collectionManager) {
         this.collectionManager = collectionManager;
@@ -104,9 +109,6 @@ public class CommandHandler {
 
     // ==================== КОМАНДЫ БЕЗ АВТОРИЗАЦИИ ====================
 
-    /**
-     * Обработка команды регистрации.
-     */
     private CommandResponse handleRegister(RegisterCommand cmd) {
         logger.debug("Регистрация пользователя: {}", cmd.getUsername());
 
@@ -120,9 +122,6 @@ public class CommandHandler {
         return new CommandResponse(true, "Регистрация успешна. Теперь вы можете войти (login)");
     }
 
-    /**
-     * Обработка команды входа.
-     */
     private CommandResponse handleLogin(LoginCommand cmd) {
         logger.debug("Вход пользователя: {}", cmd.getUsername());
 
@@ -136,9 +135,6 @@ public class CommandHandler {
         return new CommandResponse(true, "Добро пожаловать, " + user.getUsername() + "!");
     }
 
-    /**
-     * Обработка команды выхода.
-     */
     private CommandResponse handleLogout() {
         User user = currentUser.get();
         if (user != null) {
@@ -151,7 +147,14 @@ public class CommandHandler {
     // ==================== КОМАНДЫ С АВТОРИЗАЦИЕЙ ====================
 
     /**
-     * Обработка команды вставки элемента.
+     * Получение блокировки для конкретного ключа.
+     */
+    private Object getKeyLock(String key) {
+        return keyLocks.computeIfAbsent(key, k -> new Object());
+    }
+
+    /**
+     * Обработка команды вставки элемента с синхронизацией.
      */
     private CommandResponse handleInsert(InsertCommand cmd) {
         User user = currentUser.get();
@@ -159,32 +162,41 @@ public class CommandHandler {
 
         logger.debug("handleInsert: key='{}', user='{}'", key, user.getUsername());
 
-        if (collectionManager.containsKey(key)) {
-            logger.warn("Попытка вставки с уже существующим ключом: key='{}', user='{}'", key, user.getUsername());
-            return new CommandResponse(false, "Элемент с ключом '" + key + "' уже существует");
-        }
-
-        SpaceMarine marine = cmd.getMarine();
-        marine.setKey(key);
-
-        try {
-            boolean success = spaceMarineDao.insert(marine, user.getId());
-            if (success) {
-                collectionManager.addToCache(marine);
-                logger.info("Элемент вставлен: key='{}', id={}, user='{}'", key, marine.getId(), user.getUsername());
-                return new CommandResponse(true, "Элемент добавлен. Ключ: " + key + ", ID: " + marine.getId());
-            } else {
-                logger.error("Ошибка вставки элемента: key='{}'", key);
-                return new CommandResponse(false, "Ошибка при вставке элемента");
+        // Блокировка по конкретному ключу для предотвращения дубликатов
+        synchronized (getKeyLock(key)) {
+            // Двойная проверка: сначала в кэше
+            if (collectionManager.containsKey(key)) {
+                logger.warn("Попытка вставки с уже существующим ключом: key='{}', user='{}'", key, user.getUsername());
+                return new CommandResponse(false, "Элемент с ключом '" + key + "' уже существует");
             }
-        } catch (SQLException e) {
-            logger.error("Ошибка БД при вставке key='{}': {}", key, e.getMessage());
-            return new CommandResponse(false, "Ошибка БД: " + e.getMessage());
+
+            SpaceMarine marine = cmd.getMarine();
+            marine.setKey(key);
+
+            try {
+                boolean success = spaceMarineDao.insert(marine, user.getId());
+                if (success) {
+                    collectionManager.addToCache(marine);
+                    logger.info("Элемент вставлен: key='{}', id={}, user='{}'", key, marine.getId(), user.getUsername());
+                    return new CommandResponse(true, "Элемент добавлен. Ключ: " + key + ", ID: " + marine.getId());
+                } else {
+                    logger.error("Ошибка вставки элемента: key='{}'", key);
+                    return new CommandResponse(false, "Ошибка при вставке элемента");
+                }
+            } catch (SQLException e) {
+                // Проверка на нарушение уникальности в БД (PostgreSQL error code 23505)
+                if (e.getSQLState().equals("23505")) {
+                    logger.warn("Нарушение уникальности ключа в БД: key='{}'", key);
+                    return new CommandResponse(false, "Элемент с ключом '" + key + "' уже существует");
+                }
+                logger.error("Ошибка БД при вставке key='{}': {}", key, e.getMessage());
+                return new CommandResponse(false, "Ошибка БД: " + e.getMessage());
+            }
         }
     }
 
     /**
-     * Обработка команды обновления элемента.
+     * Обработка команды обновления элемента с синхронизацией.
      */
     private CommandResponse handleUpdate(UpdateCommand cmd) {
         User user = currentUser.get();
@@ -192,32 +204,34 @@ public class CommandHandler {
 
         logger.debug("handleUpdate: key='{}', user='{}'", key, user.getUsername());
 
-        if (!collectionManager.containsKey(key)) {
-            logger.warn("Попытка обновления несуществующего ключа: key='{}', user='{}'", key, user.getUsername());
-            return new CommandResponse(false, "Элемент с ключом '" + key + "' не найден");
-        }
-
-        SpaceMarine marine = cmd.getMarine();
-        marine.setKey(key);
-
-        try {
-            boolean success = spaceMarineDao.update(marine, user.getId());
-            if (success) {
-                collectionManager.addToCache(marine);
-                logger.info("Элемент обновлён: key='{}', user='{}'", key, user.getUsername());
-                return new CommandResponse(true, "Элемент с ключом '" + key + "' обновлён");
-            } else {
-                logger.warn("Элемент не обновлён: key='{}', возможно нет прав", key);
-                return new CommandResponse(false, "Элемент не найден или нет прав для обновления");
+        synchronized (getKeyLock(key)) {
+            if (!collectionManager.containsKey(key)) {
+                logger.warn("Попытка обновления несуществующего ключа: key='{}', user='{}'", key, user.getUsername());
+                return new CommandResponse(false, "Элемент с ключом '" + key + "' не найден");
             }
-        } catch (SQLException e) {
-            logger.error("Ошибка БД при обновлении key='{}': {}", key, e.getMessage());
-            return new CommandResponse(false, "Ошибка БД: " + e.getMessage());
+
+            SpaceMarine marine = cmd.getMarine();
+            marine.setKey(key);
+
+            try {
+                boolean success = spaceMarineDao.update(marine, user.getId());
+                if (success) {
+                    collectionManager.addToCache(marine);
+                    logger.info("Элемент обновлён: key='{}', user='{}'", key, user.getUsername());
+                    return new CommandResponse(true, "Элемент с ключом '" + key + "' обновлён");
+                } else {
+                    logger.warn("Элемент не обновлён: key='{}', возможно нет прав", key);
+                    return new CommandResponse(false, "Элемент не найден или нет прав для обновления");
+                }
+            } catch (SQLException e) {
+                logger.error("Ошибка БД при обновлении key='{}': {}", key, e.getMessage());
+                return new CommandResponse(false, "Ошибка БД: " + e.getMessage());
+            }
         }
     }
 
     /**
-     * Обработка команды удаления элемента.
+     * Обработка команды удаления элемента с синхронизацией.
      */
     private CommandResponse handleRemove(RemoveCommand cmd) {
         User user = currentUser.get();
@@ -225,24 +239,28 @@ public class CommandHandler {
 
         logger.debug("handleRemove: key='{}', user='{}'", key, user.getUsername());
 
-        if (!collectionManager.containsKey(key)) {
-            logger.warn("Попытка удаления несуществующего ключа: key='{}', user='{}'", key, user.getUsername());
-            return new CommandResponse(false, "Элемент с ключом '" + key + "' не найден");
-        }
-
-        try {
-            boolean success = spaceMarineDao.delete(key, user.getId());
-            if (success) {
-                collectionManager.removeFromCache(key);
-                logger.info("Элемент удалён: key='{}', user='{}'", key, user.getUsername());
-                return new CommandResponse(true, "Элемент с ключом '" + key + "' удалён");
-            } else {
-                logger.warn("Элемент не удалён: key='{}', возможно нет прав", key);
-                return new CommandResponse(false, "Элемент не найден или нет прав для удаления");
+        synchronized (getKeyLock(key)) {
+            if (!collectionManager.containsKey(key)) {
+                logger.warn("Попытка удаления несуществующего ключа: key='{}', user='{}'", key, user.getUsername());
+                return new CommandResponse(false, "Элемент с ключом '" + key + "' не найден");
             }
-        } catch (SQLException e) {
-            logger.error("Ошибка БД при удалении key='{}': {}", key, e.getMessage());
-            return new CommandResponse(false, "Ошибка БД: " + e.getMessage());
+
+            try {
+                boolean success = spaceMarineDao.delete(key, user.getId());
+                if (success) {
+                    collectionManager.removeFromCache(key);
+                    // Удаляем блокировку для ключа
+                    keyLocks.remove(key);
+                    logger.info("Элемент удалён: key='{}', user='{}'", key, user.getUsername());
+                    return new CommandResponse(true, "Элемент с ключом '" + key + "' удалён");
+                } else {
+                    logger.warn("Элемент не удалён: key='{}', возможно нет прав", key);
+                    return new CommandResponse(false, "Элемент не найден или нет прав для удаления");
+                }
+            } catch (SQLException e) {
+                logger.error("Ошибка БД при удалении key='{}': {}", key, e.getMessage());
+                return new CommandResponse(false, "Ошибка БД: " + e.getMessage());
+            }
         }
     }
 
@@ -265,14 +283,17 @@ public class CommandHandler {
 
         int removed = 0;
         for (String key : keysToRemove) {
-            try {
-                boolean success = spaceMarineDao.delete(key, user.getId());
-                if (success) {
-                    collectionManager.removeFromCache(key);
-                    removed++;
+            synchronized (getKeyLock(key)) {
+                try {
+                    boolean success = spaceMarineDao.delete(key, user.getId());
+                    if (success) {
+                        collectionManager.removeFromCache(key);
+                        keyLocks.remove(key);
+                        removed++;
+                    }
+                } catch (SQLException e) {
+                    logger.error("Ошибка БД при удалении key='{}': {}", key, e.getMessage());
                 }
-            } catch (SQLException e) {
-                logger.error("Ошибка БД при удалении key='{}': {}", key, e.getMessage());
             }
         }
 
@@ -289,34 +310,36 @@ public class CommandHandler {
 
         logger.debug("handleReplaceIfGreater: key='{}', user='{}'", key, user.getUsername());
 
-        if (!collectionManager.containsKey(key)) {
-            logger.warn("Элемент с ключом '{}' не найден для replace_if_greater", key);
-            return new CommandResponse(false, "Элемент с ключом '" + key + "' не найден");
-        }
-
-        SpaceMarine oldMarine = collectionManager.getFromCache(key);
-        SpaceMarine newMarine = cmd.getNewMarine();
-        newMarine.setKey(key);
-        newMarine.setId(oldMarine.getId());
-        newMarine.setCreationDate(oldMarine.getCreationDate());
-
-        if (newMarine.compareTo(oldMarine) > 0) {
-            try {
-                boolean success = spaceMarineDao.update(newMarine, user.getId());
-                if (success) {
-                    collectionManager.addToCache(newMarine);
-                    logger.info("Замена выполнена: key='{}', user='{}' (новое больше старого)", key, user.getUsername());
-                    return new CommandResponse(true, "Значение заменено (новое больше старого)");
-                } else {
-                    return new CommandResponse(false, "Не удалось обновить элемент");
-                }
-            } catch (SQLException e) {
-                logger.error("Ошибка БД при замене key='{}': {}", key, e.getMessage());
-                return new CommandResponse(false, "Ошибка БД: " + e.getMessage());
+        synchronized (getKeyLock(key)) {
+            if (!collectionManager.containsKey(key)) {
+                logger.warn("Элемент с ключом '{}' не найден для replace_if_greater", key);
+                return new CommandResponse(false, "Элемент с ключом '" + key + "' не найден");
             }
-        } else {
-            logger.debug("Замена не выполнена: новое значение не больше старого, key='{}'", key);
-            return new CommandResponse(true, "Замена не выполнена: новое значение не больше старого");
+
+            SpaceMarine oldMarine = collectionManager.getFromCache(key);
+            SpaceMarine newMarine = cmd.getNewMarine();
+            newMarine.setKey(key);
+            newMarine.setId(oldMarine.getId());
+            newMarine.setCreationDate(oldMarine.getCreationDate());
+
+            if (newMarine.compareTo(oldMarine) > 0) {
+                try {
+                    boolean success = spaceMarineDao.update(newMarine, user.getId());
+                    if (success) {
+                        collectionManager.addToCache(newMarine);
+                        logger.info("Замена выполнена: key='{}', user='{}' (новое больше старого)", key, user.getUsername());
+                        return new CommandResponse(true, "Значение заменено (новое больше старого)");
+                    } else {
+                        return new CommandResponse(false, "Не удалось обновить элемент");
+                    }
+                } catch (SQLException e) {
+                    logger.error("Ошибка БД при замене key='{}': {}", key, e.getMessage());
+                    return new CommandResponse(false, "Ошибка БД: " + e.getMessage());
+                }
+            } else {
+                logger.debug("Замена не выполнена: новое значение не больше старого, key='{}'", key);
+                return new CommandResponse(true, "Замена не выполнена: новое значение не больше старого");
+            }
         }
     }
 
@@ -329,34 +352,36 @@ public class CommandHandler {
 
         logger.debug("handleReplaceIfLower: key='{}', user='{}'", key, user.getUsername());
 
-        if (!collectionManager.containsKey(key)) {
-            logger.warn("Элемент с ключом '{}' не найден для replace_if_lower", key);
-            return new CommandResponse(false, "Элемент с ключом '" + key + "' не найден");
-        }
-
-        SpaceMarine oldMarine = collectionManager.getFromCache(key);
-        SpaceMarine newMarine = cmd.getNewMarine();
-        newMarine.setKey(key);
-        newMarine.setId(oldMarine.getId());
-        newMarine.setCreationDate(oldMarine.getCreationDate());
-
-        if (newMarine.compareTo(oldMarine) < 0) {
-            try {
-                boolean success = spaceMarineDao.update(newMarine, user.getId());
-                if (success) {
-                    collectionManager.addToCache(newMarine);
-                    logger.info("Замена выполнена: key='{}', user='{}' (новое меньше старого)", key, user.getUsername());
-                    return new CommandResponse(true, "Значение заменено (новое меньше старого)");
-                } else {
-                    return new CommandResponse(false, "Не удалось обновить элемент");
-                }
-            } catch (SQLException e) {
-                logger.error("Ошибка БД при замене key='{}': {}", key, e.getMessage());
-                return new CommandResponse(false, "Ошибка БД: " + e.getMessage());
+        synchronized (getKeyLock(key)) {
+            if (!collectionManager.containsKey(key)) {
+                logger.warn("Элемент с ключом '{}' не найден для replace_if_lower", key);
+                return new CommandResponse(false, "Элемент с ключом '" + key + "' не найден");
             }
-        } else {
-            logger.debug("Замена не выполнена: новое значение не меньше старого, key='{}'", key);
-            return new CommandResponse(true, "Замена не выполнена: новое значение не меньше старого");
+
+            SpaceMarine oldMarine = collectionManager.getFromCache(key);
+            SpaceMarine newMarine = cmd.getNewMarine();
+            newMarine.setKey(key);
+            newMarine.setId(oldMarine.getId());
+            newMarine.setCreationDate(oldMarine.getCreationDate());
+
+            if (newMarine.compareTo(oldMarine) < 0) {
+                try {
+                    boolean success = spaceMarineDao.update(newMarine, user.getId());
+                    if (success) {
+                        collectionManager.addToCache(newMarine);
+                        logger.info("Замена выполнена: key='{}', user='{}' (новое меньше старого)", key, user.getUsername());
+                        return new CommandResponse(true, "Значение заменено (новое меньше старого)");
+                    } else {
+                        return new CommandResponse(false, "Не удалось обновить элемент");
+                    }
+                } catch (SQLException e) {
+                    logger.error("Ошибка БД при замене key='{}': {}", key, e.getMessage());
+                    return new CommandResponse(false, "Ошибка БД: " + e.getMessage());
+                }
+            } else {
+                logger.debug("Замена не выполнена: новое значение не меньше старого, key='{}'", key);
+                return new CommandResponse(true, "Замена не выполнена: новое значение не меньше старого");
+            }
         }
     }
 
@@ -371,6 +396,8 @@ public class CommandHandler {
         try {
             int deletedCount = spaceMarineDao.deleteAllByOwner(user.getId());
             collectionManager.loadFromDatabase(); // Перезагружаем кэш
+            // Очищаем все блокировки
+            keyLocks.clear();
             logger.info("Очищено {} элементов пользователя {}", deletedCount, user.getUsername());
             return new CommandResponse(true, "Удалено ваших элементов: " + deletedCount);
         } catch (SQLException e) {

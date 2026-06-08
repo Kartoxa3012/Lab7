@@ -1,12 +1,9 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <Configuration status="WARN">
     <Appenders>
-        <!-- Консольный аппендер (цветной вывод) -->
         <Console name="Console" target="SYSTEM_OUT">
             <PatternLayout pattern="%d{HH:mm:ss.SSS} [%t] %highlight{%-5level} %logger{36} - %msg%n"/>
         </Console>
-
-        <!-- Файловый аппендер -->
         <RollingFile name="File" fileName="logs/server.log"
                      filePattern="logs/server-%d{yyyy-MM-dd}.log">
             <PatternLayout pattern="%d{yyyy-MM-dd HH:mm:ss.SSS} [%t] %-5level %logger{36} - %msg%n"/>
@@ -19,13 +16,11 @@
     </Appenders>
 
     <Loggers>
-        <!-- Логгер для нашего приложения -->
         <Logger name="ru.itmo" level="DEBUG" additivity="false">
             <AppenderRef ref="Console"/>
             <AppenderRef ref="File"/>
         </Logger>
 
-        <!-- Корневой логгер -->
         <Root level="INFO">
             <AppenderRef ref="Console"/>
             <AppenderRef ref="File"/>

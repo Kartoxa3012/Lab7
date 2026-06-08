@@ -27,7 +27,6 @@ public class RequestProcessor {
     public RequestProcessor(CommandHandler commandHandler, server.processing.ResponseQueue responseQueue) {
         this.commandHandler = commandHandler;
         this.responseQueue = responseQueue;
-        // Cached thread pool для обработки команд
         this.processingPool = Executors.newCachedThreadPool();
         logger.info("RequestProcessor инициализирован с CachedThreadPool");
     }
@@ -39,33 +38,17 @@ public class RequestProcessor {
      * @param clientAddress  адрес клиента
      */
     public void processRequest(Command command, SocketAddress clientAddress) {
-        // Создаём новый поток для обработки команды (требование: новый Thread)
-        Thread handlerThread = new Thread(() -> {
-            logger.debug("Начало обработки команды {} от {} в потоке {}",
-                    command.getClass().getSimpleName(), clientAddress, Thread.currentThread().getName());
-
-            long startTime = System.currentTimeMillis();
+        processingPool.submit(() -> {
+            logger.debug("Начало обработки команды {} от {}",
+                    command.getClass().getSimpleName(), clientAddress);
             CommandResponse response = commandHandler.handle(command);
-            long elapsedTime = System.currentTimeMillis() - startTime;
-
-            logger.info("Команда {} обработана за {} мс, результат: {}",
-                    command.getClass().getSimpleName(), elapsedTime,
+            logger.info("Команда {} обработана, результат: {}",
+                    command.getClass().getSimpleName(),
                     response.isSuccess() ? "успех" : "ошибка");
 
-            // Добавляем ответ в очередь
             responseQueue.add(response, clientAddress);
             logger.debug("Ответ добавлен в очередь для {}", clientAddress);
         });
-
-        handlerThread.setDaemon(false);
-        handlerThread.start();
-        logger.debug("Создан новый поток {} для обработки команды", handlerThread.getName());
-
-        // Альтернативно можно использовать пул (раскомментировать для использования пула вместо new Thread)
-        // processingPool.submit(() -> {
-        //     CommandResponse response = commandHandler.handle(command);
-        //     responseQueue.add(response, clientAddress);
-        // });
     }
 
     /**

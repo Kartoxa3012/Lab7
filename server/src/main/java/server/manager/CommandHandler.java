@@ -48,7 +48,6 @@ public class CommandHandler {
     public CommandResponse handle(Command command) {
         logger.debug("Получена команда: {}", command.getClass().getSimpleName());
 
-        // Обработка команд, не требующих авторизации
         if (command instanceof RegisterCommand) {
             return handleRegister((RegisterCommand) command);
         }
@@ -56,7 +55,6 @@ public class CommandHandler {
             return handleLogin((LoginCommand) command);
         }
 
-        // Для всех остальных команд требуется авторизация
         if (!(command instanceof AuthenticatedCommand)) {
             logger.warn("Попытка выполнения команды без авторизации: {}", command.getClass().getSimpleName());
             return new CommandResponse(false, "Требуется авторизация. Используйте login");
@@ -64,7 +62,6 @@ public class CommandHandler {
 
         AuthenticatedCommand authCmd = (AuthenticatedCommand) command;
 
-        // Проверяем или сохраняем пользователя
         User user = authService.login(authCmd.getUsername(), authCmd.getPasswordHash());
         if (user == null) {
             logger.warn("Неудачная авторизация для команды {}: пользователь {}",
@@ -74,7 +71,6 @@ public class CommandHandler {
         currentUser.set(user);
         logger.debug("Пользователь {} авторизован для команды {}", user.getUsername(), command.getClass().getSimpleName());
 
-        // Маршрутизация команд
         if (command instanceof InsertCommand) {
             return handleInsert((InsertCommand) command);
         } else if (command instanceof UpdateCommand) {
@@ -101,13 +97,14 @@ public class CommandHandler {
             return handlePrintHealth();
         } else if (command instanceof LogoutCommand) {
             return handleLogout();
+
+        } else if (command instanceof CheckKeyCommand) {
+            return handleCheckKey((CheckKeyCommand) command);
         } else {
             logger.warn("Неизвестная команда: {}", command.getClass().getSimpleName());
             return new CommandResponse(false, "Неизвестная команда");
         }
     }
-
-    // ==================== КОМАНДЫ БЕЗ АВТОРИЗАЦИИ ====================
 
     private CommandResponse handleRegister(RegisterCommand cmd) {
         logger.debug("Регистрация пользователя: {}", cmd.getUsername());
@@ -158,15 +155,12 @@ public class CommandHandler {
      */
     private CommandResponse handleInsert(InsertCommand cmd) {
         User user = currentUser.get();
-        String key = cmd.getKey();
+        String key = cmd.getKey().trim();
 
         logger.debug("handleInsert: key='{}', user='{}'", key, user.getUsername());
 
-        // Блокировка по конкретному ключу для предотвращения дубликатов
         synchronized (getKeyLock(key)) {
-            // Двойная проверка: сначала в кэше
             if (collectionManager.containsKey(key)) {
-                logger.warn("Попытка вставки с уже существующим ключом: key='{}', user='{}'", key, user.getUsername());
                 return new CommandResponse(false, "Элемент с ключом '" + key + "' уже существует");
             }
 
@@ -174,22 +168,10 @@ public class CommandHandler {
             marine.setKey(key);
 
             try {
-                boolean success = spaceMarineDao.insert(marine, user.getId());
-                if (success) {
-                    collectionManager.addToCache(marine);
-                    logger.info("Элемент вставлен: key='{}', id={}, user='{}'", key, marine.getId(), user.getUsername());
-                    return new CommandResponse(true, "Элемент добавлен. Ключ: " + key + ", ID: " + marine.getId());
-                } else {
-                    logger.error("Ошибка вставки элемента: key='{}'", key);
-                    return new CommandResponse(false, "Ошибка при вставке элемента");
-                }
+                spaceMarineDao.insert(marine, user.getId());
+                collectionManager.addToCache(marine);
+                return new CommandResponse(true, "Элемент добавлен. ID: " + marine.getId());
             } catch (SQLException e) {
-                // Проверка на нарушение уникальности в БД (PostgreSQL error code 23505)
-                if (e.getSQLState().equals("23505")) {
-                    logger.warn("Нарушение уникальности ключа в БД: key='{}'", key);
-                    return new CommandResponse(false, "Элемент с ключом '" + key + "' уже существует");
-                }
-                logger.error("Ошибка БД при вставке key='{}': {}", key, e.getMessage());
                 return new CommandResponse(false, "Ошибка БД: " + e.getMessage());
             }
         }
@@ -523,4 +505,19 @@ public class CommandHandler {
         }
         return new CommandResponse(true, sb.toString());
     }
+
+    private CommandResponse handleCheckKey(CheckKeyCommand cmd) {
+        String key = cmd.getKey();
+        User user = currentUser.get();
+
+        logger.debug("handleCheckKey: key='{}', user='{}'", key, user.getUsername());
+
+        synchronized (getKeyLock(key)) {
+            if (collectionManager.containsKey(key)) {
+                return new CommandResponse(false, "Элемент с ключом '" + key + "' уже существует");
+            }
+            return new CommandResponse(true, "Ключ свободен");
+        }
+    }
+
 }

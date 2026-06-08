@@ -31,8 +31,6 @@ public class Client {
     private DatagramSocket socket;
     private final InputManager inputManager;
     private boolean running;
-
-    // Состояние авторизации
     private String currentUsername;
     private String currentPassword;
     private boolean authenticated;
@@ -266,8 +264,6 @@ public class Client {
         }
     }
 
-    // ==================== ОТПРАВКА КОМАНД ====================
-
     private void sendRegisterCommand(String username, String password) {
         RegisterCommand cmd = new RegisterCommand(username, password);
         sendAndReceive(cmd);
@@ -319,11 +315,15 @@ public class Client {
     }
 
     private void sendInsertCommand(String key) {
+        CheckKeyCommand checkCmd = new CheckKeyCommand(currentUsername, currentPassword, key);
+        CommandResponse checkResponse = sendAndReceive(checkCmd);
+        if (checkResponse == null || !checkResponse.isSuccess()) {
+            return;
+        }
         System.out.println("Введите данные нового элемента:");
         SpaceMarine marine = inputManager.readNewMarine();
-        marine.setKey(key);
-        InsertCommand cmd = new InsertCommand(currentUsername, currentPassword, key, marine);
-        sendAndReceive(cmd);
+        InsertCommand insertCmd = new InsertCommand(currentUsername, currentPassword, key, marine);
+        sendAndReceive(insertCmd);
     }
 
     private void sendUpdateCommand(String key) {

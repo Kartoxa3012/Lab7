@@ -1,5 +1,6 @@
 
 package common.commands;
+import common.AuthenticatedCommand;
 import common.Command;
 
 import java.io.Serializable;
@@ -11,13 +12,10 @@ import java.io.Serializable;
  * @author Kovalenko Vlad, 504673
  * @see Command
  */
-public class ExitCommand implements Command, Serializable {
+public class ExitCommand extends AuthenticatedCommand {
     private static final long serialVersionUID = 1L;
 
-    /**
-     * Создаёт команду завершения клиента.
-     */
-    public ExitCommand() {
-        // пустой конструктор
+    public ExitCommand(String username, String password) {
+        super(username, password);
     }
 }

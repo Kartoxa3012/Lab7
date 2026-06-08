@@ -1,23 +1,26 @@
 package common.commands;
+import common.AuthenticatedCommand;
 import common.Command;
 
 import java.io.Serializable;
 
 /**
- * Команда {@code show} – запрос на получение всех элементов коллекции.
- * Данная команда не содержит параметров. Сервер, получив эту команду,
- * должен вернуть все элементы коллекции в отсортированном порядке.
+ * Команда отображения всех элементов коллекции.
+ * Требует авторизации. Выводит все элементы (всех пользователей).
  *
  * @author Kovalenko Vlad, 504673
- * @see Command
+ * @see AuthenticatedCommand
  */
-public class ShowCommand implements Command, Serializable {
+public class ShowCommand extends AuthenticatedCommand {
     private static final long serialVersionUID = 1L;
 
     /**
-     * Создаёт команду запроса всех элементов коллекции.
+     * Конструктор команды показа коллекции.
+     *
+     * @param username логин пользователя
+     * @param password пароль пользователя
      */
-    public ShowCommand() {
-        // пустой конструктор для десериализации
+    public ShowCommand(String username, String password) {
+        super(username, password);
     }
 }

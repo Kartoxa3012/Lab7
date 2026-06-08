@@ -241,41 +241,31 @@ public class InputManager {
         float health = 0;
         while (health <= 0) {
             health = readFloat("Здоровье (>0): ", false);
-            if (!scriptMode && health <= 0) System.out.println("Здоровье должно быть больше 0.");
-            if (scriptMode && health <= 0) {
-                System.out.println("Ошибка в скрипте: здоровье должно быть больше 0");
-                return null;
-            }
+            if (health <= 0) System.out.println("Здоровье должно быть больше 0.");
         }
         AstartesCategory category = readEnum("Категория (можно пропустить): ", AstartesCategory.class, true);
         Weapon weapon = readEnum("Тип оружия (не null): ", Weapon.class, false);
         MeleeWeapon melee = readEnum("Оружие ближнего боя (можно пропустить): ", MeleeWeapon.class, true);
         Chapter chapter = readChapter();
-        return new SpaceMarine(name, coords, health, category, weapon, melee, chapter);
+
+        // Временно создаём с пустым ключом, он будет установлен позже
+        return new SpaceMarine("", name, coords, health, category, weapon, melee, chapter);
     }
 
-    /**
-     * Читает поля объекта {@link SpaceMarine} для обновления существующего.
-     * Поля {@code id} и {@code creationDate} не запрашиваются (будут скопированы из старого объекта на сервере).
-     *
-     * @return объект SpaceMarine с новыми значениями (без id и даты)
-     */
     public SpaceMarine readMarineForUpdate() {
         String name = readString("Имя: ", false);
         Coordinates coords = readCoordinates();
         float health = 0;
         while (health <= 0) {
             health = readFloat("Здоровье (>0): ", false);
-            if (!scriptMode && health <= 0) System.out.println("Здоровье должно быть больше 0.");
-            if (scriptMode && health <= 0) {
-                System.out.println("Ошибка в скрипте: здоровье должно быть больше 0");
-                return null;
-            }
+            if (health <= 0) System.out.println("Здоровье должно быть больше 0.");
         }
         AstartesCategory category = readEnum("Категория (можно пропустить): ", AstartesCategory.class, true);
         Weapon weapon = readEnum("Тип оружия (не null): ", Weapon.class, false);
         MeleeWeapon melee = readEnum("Оружие ближнего боя (можно пропустить): ", MeleeWeapon.class, true);
         Chapter chapter = readChapter();
-        return new SpaceMarine(name, coords, health, category, weapon, melee, chapter);
+
+        // Временно создаём с пустым ключом, он будет установлен позже
+        return new SpaceMarine("", name, coords, health, category, weapon, melee, chapter);
     }
 }

@@ -1,30 +1,31 @@
 package common.commands;
+import common.AuthenticatedCommand;
 import common.Command;
 import common.model.SpaceMarine;
 
 import java.io.Serializable;
 
 /**
- * Команда {@code remove_greater} – запрос на удаление из коллекции всех элементов,
- * превышающих заданный эталонный элемент.
- * Содержит эталонный объект {@link SpaceMarine} (без id, так как id генерируется на сервере).
- * Сервер должен удалить все элементы коллекции, которые в естественном порядке
- * сравнения оказываются больше переданного.
+ * Команда удаления всех элементов, превышающих заданный.
+ * Требует авторизации. Содержит эталонный объект SpaceMarine.
  *
  * @author Kovalenko Vlad, 504673
- * @see Command
+ * @see AuthenticatedCommand
  * @see SpaceMarine
  */
-public class RemoveGreaterCommand implements Command, Serializable {
+public class RemoveGreaterCommand extends AuthenticatedCommand {
     private static final long serialVersionUID = 1L;
     private final SpaceMarine reference;
 
     /**
-     * Создаёт команду удаления элементов, превышающих эталонный.
+     * Конструктор команды удаления больших элементов.
      *
-     * @param reference эталонный объект {@link SpaceMarine} (id не используется, только поля для сравнения)
+     * @param username  логин пользователя
+     * @param password  пароль пользователя
+     * @param reference эталонный объект для сравнения
      */
-    public RemoveGreaterCommand(SpaceMarine reference) {
+    public RemoveGreaterCommand(String username, String password, SpaceMarine reference) {
+        super(username, password);
         this.reference = reference;
     }
 
@@ -33,7 +34,5 @@ public class RemoveGreaterCommand implements Command, Serializable {
      *
      * @return эталонный SpaceMarine
      */
-    public SpaceMarine getReference() {
-        return reference;
-    }
+    public SpaceMarine getReference() { return reference; }
 }

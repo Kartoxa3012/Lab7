@@ -23,12 +23,9 @@ public class CommandProcessor {
         String commandName = command.getClass().getSimpleName();
         logger.debug("Начало обработки команды: {}", commandName);
 
-        long startTime = System.currentTimeMillis();
         CommandResponse response = commandHandler.handle(command);
-        long elapsedTime = System.currentTimeMillis() - startTime;
-
-        logger.info("Команда {} обработана за {} мс, результат: {}",
-                commandName, elapsedTime, response.isSuccess() ? "успех" : "ошибка");
+        logger.info("Команда {} обработана , результат: {}",
+                commandName, response.isSuccess() ? "успех" : "ошибка");
 
         return response;
     }

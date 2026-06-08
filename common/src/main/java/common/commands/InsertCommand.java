@@ -1,49 +1,48 @@
 package common.commands;
+import common.AuthenticatedCommand;
 import common.Command;
 import common.model.SpaceMarine;
 
 import java.io.Serializable;
 
 /**
- * Команда {@code insert} – запрос на добавление нового элемента в коллекцию.
- * Содержит ключ, по которому элемент будет храниться в коллекции,
- * и сам объект {@link SpaceMarine} (без id, так как id генерируется на сервере).
+ * Команда добавления нового элемента в коллекцию.
+ * Требует авторизации. Содержит ключ и объект SpaceMarine.
  *
  * @author Kovalenko Vlad, 504673
- * @see Command
+ * @see AuthenticatedCommand
  * @see SpaceMarine
  */
-public class InsertCommand implements Command, Serializable {
+public class InsertCommand extends AuthenticatedCommand {
     private static final long serialVersionUID = 1L;
     private final String key;
     private final SpaceMarine marine;
 
     /**
-     * Создаёт команду добавления элемента.
+     * Конструктор команды вставки.
      *
-     * @param key    ключ, под которым элемент будет храниться в коллекции (не может быть null или пустым)
-     * @param marine объект {@link SpaceMarine} без id (id будет сгенерирован на сервере)
+     * @param username логин пользователя
+     * @param password пароль пользователя
+     * @param key      ключ, по которому элемент будет храниться в коллекции
+     * @param marine   объект SpaceMarine (без id, генерируется на сервере)
      */
-    public InsertCommand(String key, SpaceMarine marine) {
+    public InsertCommand(String username, String password, String key, SpaceMarine marine) {
+        super(username, password);
         this.key = key;
         this.marine = marine;
     }
 
     /**
-     * Возвращает ключ для добавления элемента.
+     * Возвращает ключ для хранения элемента.
      *
-     * @return ключ
+     * @return ключ элемента
      */
-    public String getKey() {
-        return key;
-    }
+    public String getKey() { return key; }
 
     /**
-     * Возвращает объект {@link SpaceMarine} для добавления.
+     * Возвращает объект SpaceMarine для добавления.
      *
-     * @return объект SpaceMarine (без id)
+     * @return объект SpaceMarine
      */
-    public SpaceMarine getMarine() {
-        return marine;
-    }
+    public SpaceMarine getMarine() { return marine; }
 }

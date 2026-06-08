@@ -1,9 +1,10 @@
 package client;
 
 import client.util.InputManager;
-import common.Command;
-import common.CommandResponse;
+import common.*;
 import common.commands.*;
+import common.commands.LoginCommand;
+import common.commands.RegisterCommand;
 import common.model.SpaceMarine;
 import common.model.AstartesCategory;
 import common.util.Serializer;
@@ -16,11 +17,7 @@ import java.util.Set;
 
 /**
  * UDP-клиент для взаимодействия с сервером.
- * <p>
- * Читает команды из консоли, сериализует их, отправляет на сервер,
- * получает ответ и выводит результат пользователю.
- * Поддерживает выполнение скриптов с защитой от рекурсии.
- * </p>
+ * Поддерживает авторизацию и отправку команд с логином/паролем.
  *
  * @author Kovalenko Vlad, 504673
  */
@@ -35,14 +32,11 @@ public class Client {
     private final InputManager inputManager;
     private boolean running;
 
-    /**
-     * Конструктор клиента.
-     *
-     * @param host       адрес сервера
-     * @param port       порт сервера
-     * @param timeout    таймаут ожидания ответа в миллисекундах
-     * @param maxRetries максимальное количество попыток отправки
-     */
+    // Состояние авторизации
+    private String currentUsername;
+    private String currentPassword;
+    private boolean authenticated;
+
     public Client(String host, int port, int timeout, int maxRetries) {
         this.host = host;
         this.port = port;
@@ -50,16 +44,15 @@ public class Client {
         this.maxRetries = maxRetries;
         this.inputManager = new InputManager(new Scanner(System.in));
         this.running = true;
+        this.authenticated = false;
     }
 
-    /**
-     * Запускает клиент.
-     */
     public void start() {
         try {
             socket = new DatagramSocket();
             socket.setSoTimeout(timeout);
             System.out.println("Клиент запущен. Подключение к " + host + ":" + port);
+            System.out.println("Сначала выполните register или login");
             System.out.println("Введите help для списка команд.");
 
             while (running) {
@@ -77,15 +70,11 @@ public class Client {
         }
     }
 
-    /**
-     * Обрабатывает введённую команду.
-     *
-     * @param line строка команды
-     */
     private void processCommand(String line) {
-        String[] parts = line.split("\\s+", 2);
+        String[] parts = line.split("\\s+", 3);
         String commandName = parts[0].toLowerCase();
-        String argument = parts.length > 1 ? parts[1] : null;
+        String arg1 = parts.length > 1 ? parts[1] : null;
+        String arg2 = parts.length > 2 ? parts[2] : null;
 
         try {
             switch (commandName) {
@@ -96,70 +85,95 @@ public class Client {
                     exit();
                     break;
                 case "execute_script":
-                    if (argument == null) {
+                    if (arg1 == null) {
                         System.out.println("Ошибка: укажите имя файла.");
                         return;
                     }
-                    executeScript(argument);
+                    executeScript(arg1);
+                    break;
+                case "register":
+                    if (arg1 == null || arg2 == null) {
+                        System.out.println("Использование: register <логин> <пароль>");
+                        return;
+                    }
+                    sendRegisterCommand(arg1, arg2);
+                    break;
+                case "login":
+                    if (arg1 == null || arg2 == null) {
+                        System.out.println("Использование: login <логин> <пароль>");
+                        return;
+                    }
+                    sendLoginCommand(arg1, arg2);
+                    break;
+                case "logout":
+                    sendLogoutCommand();
                     break;
                 case "info":
                 case "show":
                 case "clear":
                 case "print_field_descending_health":
-                    Command cmd = createSimpleCommand(commandName);
-                    sendAndReceive(cmd);
+                    if (!checkAuth()) return;
+                    sendSimpleCommand(commandName);
                     break;
                 case "insert":
-                    if (argument == null) {
+                    if (!checkAuth()) return;
+                    if (arg1 == null) {
                         System.out.println("Ошибка: укажите ключ. Пример: insert myKey");
                         return;
                     }
-                    sendInsertCommand(argument);
+                    sendInsertCommand(arg1);
                     break;
                 case "update":
-                    if (argument == null) {
-                        System.out.println("Ошибка: укажите id. Пример: update 5");
+                    if (!checkAuth()) return;
+                    if (arg1 == null) {
+                        System.out.println("Ошибка: укажите ключ. Пример: update myKey");
                         return;
                     }
-                    sendUpdateCommand(argument);
+                    sendUpdateCommand(arg1);
                     break;
                 case "remove_key":
-                    if (argument == null) {
+                    if (!checkAuth()) return;
+                    if (arg1 == null) {
                         System.out.println("Ошибка: укажите ключ. Пример: remove_key myKey");
                         return;
                     }
-                    sendRemoveCommand(argument);
+                    sendRemoveCommand(arg1);
                     break;
                 case "remove_greater":
+                    if (!checkAuth()) return;
                     sendRemoveGreaterCommand();
                     break;
                 case "replace_if_greater":
-                    if (argument == null) {
+                    if (!checkAuth()) return;
+                    if (arg1 == null) {
                         System.out.println("Ошибка: укажите ключ. Пример: replace_if_greater myKey");
                         return;
                     }
-                    sendReplaceIfGreaterCommand(argument);
+                    sendReplaceIfGreaterCommand(arg1);
                     break;
                 case "replace_if_lowe":
-                    if (argument == null) {
+                    if (!checkAuth()) return;
+                    if (arg1 == null) {
                         System.out.println("Ошибка: укажите ключ. Пример: replace_if_lowe myKey");
                         return;
                     }
-                    sendReplaceIfLowerCommand(argument);
+                    sendReplaceIfLowerCommand(arg1);
                     break;
                 case "filter_by_category":
-                    if (argument == null) {
-                        System.out.println("Ошибка: укажите категорию. Доступные: DREADNOUGHT, AGGRESSOR, APOTHECARY");
+                    if (!checkAuth()) return;
+                    if (arg1 == null) {
+                        System.out.println("Ошибка: укажите категорию.");
                         return;
                     }
-                    sendFilterByCategoryCommand(argument);
+                    sendFilterByCategoryCommand(arg1);
                     break;
                 case "filter_contains_name":
-                    if (argument == null) {
+                    if (!checkAuth()) return;
+                    if (arg1 == null) {
                         System.out.println("Ошибка: укажите подстроку.");
                         return;
                     }
-                    sendFilterContainsNameCommand(argument);
+                    sendFilterContainsNameCommand(arg1);
                     break;
                 default:
                     System.out.println("Неизвестная команда. Введите help.");
@@ -169,44 +183,48 @@ public class Client {
         }
     }
 
-    /**
-     * Выводит список доступных команд.
-     */
+    private boolean checkAuth() {
+        if (!authenticated) {
+            System.out.println("Необходимо авторизоваться. Используйте login <логин> <пароль>");
+            return false;
+        }
+        return true;
+    }
+
     private void showHelp() {
         System.out.println("Доступные команды:");
         System.out.println("  help - вывести справку");
+        System.out.println("  register <логин> <пароль> - регистрация");
+        System.out.println("  login <логин> <пароль> - авторизация");
+        System.out.println("  logout - завершить сессию");
         System.out.println("  info - информация о коллекции");
         System.out.println("  show - все элементы коллекции");
         System.out.println("  insert <key> - добавить элемент");
-        System.out.println("  update <id> - обновить элемент");
+        System.out.println("  update <key> - обновить элемент");
         System.out.println("  remove_key <key> - удалить элемент");
-        System.out.println("  clear - очистить коллекцию");
+        System.out.println("  clear - очистить коллекцию (только свои элементы)");
         System.out.println("  remove_greater - удалить элементы, превышающие заданный");
         System.out.println("  replace_if_greater <key> - заменить, если новое больше");
         System.out.println("  replace_if_lowe <key> - заменить, если новое меньше");
         System.out.println("  filter_by_category <category> - фильтр по категории");
         System.out.println("  filter_contains_name <name> - фильтр по имени");
         System.out.println("  print_field_descending_health - здоровье по убыванию");
-        System.out.println("  execute_script <file> - выполнить скрипт из файла");
+        System.out.println("  execute_script <file> - выполнить скрипт");
         System.out.println("  exit - завершить клиент");
     }
 
-    /**
-     * Завершает работу клиента.
-     */
     private void exit() {
         System.out.println("Завершение клиента.");
         running = false;
     }
 
-    /**
-     * Выполняет скрипт из файла.
-     *
-     * @param fileName имя файла скрипта
-     */
     private void executeScript(String fileName) {
-        File file = new File(fileName);
+        if (!authenticated) {
+            System.out.println("Сначала выполните login");
+            return;
+        }
 
+        File file = new File(fileName);
         if (!file.exists()) {
             System.out.println("Файл не найден: " + fileName);
             return;
@@ -231,132 +249,134 @@ public class Client {
         activeScripts.add(absolutePath);
 
         try (Scanner fileScanner = new Scanner(file)) {
-            // Включаем режим скрипта
             inputManager.startScriptMode(fileScanner);
-
+            int lineNum = 0;
             while (fileScanner.hasNextLine()) {
                 String line = fileScanner.nextLine().trim();
+                lineNum++;
                 if (line.isEmpty() || line.startsWith("#")) continue;
-                System.out.println("[скрипт " + fileName + "] " + line);
-
-                // Временно сохраняем оригинальный scanner? Нет, fileScanner уже активен
+                System.out.println("[скрипт " + fileName + ":" + lineNum + "] " + line);
                 processCommand(line);
             }
         } catch (FileNotFoundException e) {
             System.out.println("Ошибка открытия файла: " + e.getMessage());
         } finally {
-            // Выключаем режим скрипта
             inputManager.endScriptMode();
             activeScripts.remove(absolutePath);
         }
     }
 
-    /**
-     * Создаёт простую команду без аргументов.
-     */
-    private Command createSimpleCommand(String commandName) {
-        switch (commandName) {
-            case "info": return new InfoCommand();
-            case "show": return new ShowCommand();
-            case "clear": return new ClearCommand();
-            case "print_field_descending_health": return new PrintFieldDescendingHealthCommand();
-            default: throw new IllegalArgumentException("Неизвестная команда: " + commandName);
+    // ==================== ОТПРАВКА КОМАНД ====================
+
+    private void sendRegisterCommand(String username, String password) {
+        RegisterCommand cmd = new RegisterCommand(username, password);
+        sendAndReceive(cmd);
+    }
+
+    private void sendLoginCommand(String username, String password) {
+        LoginCommand cmd = new LoginCommand(username, password);
+        CommandResponse response = sendAndReceive(cmd);
+        if (response != null && response.isSuccess()) {
+            currentUsername = username;
+            currentPassword = password;
+            authenticated = true;
+            System.out.println("Авторизация успешна. Добро пожаловать, " + username + "!");
         }
     }
 
-    /**
-     * Отправляет команду insert.
-     */
+    private void sendLogoutCommand() {
+        if (!authenticated) {
+            System.out.println("Вы не авторизованы");
+            return;
+        }
+        LogoutCommand cmd = new LogoutCommand(currentUsername, currentPassword);
+        sendAndReceive(cmd);
+        authenticated = false;
+        currentUsername = null;
+        currentPassword = null;
+        System.out.println("Вы вышли из системы");
+    }
+
+    private void sendSimpleCommand(String commandName) {
+        Command cmd;
+        switch (commandName) {
+            case "info":
+                cmd = new InfoCommand(currentUsername, currentPassword);
+                break;
+            case "show":
+                cmd = new ShowCommand(currentUsername, currentPassword);
+                break;
+            case "clear":
+                cmd = new ClearCommand(currentUsername, currentPassword);
+                break;
+            case "print_field_descending_health":
+                cmd = new PrintFieldDescendingHealthCommand(currentUsername, currentPassword);
+                break;
+            default:
+                return;
+        }
+        sendAndReceive(cmd);
+    }
+
     private void sendInsertCommand(String key) {
         System.out.println("Введите данные нового элемента:");
         SpaceMarine marine = inputManager.readNewMarine();
-        InsertCommand cmd = new InsertCommand(key, marine);
+        marine.setKey(key);
+        InsertCommand cmd = new InsertCommand(currentUsername, currentPassword, key, marine);
         sendAndReceive(cmd);
     }
 
-    /**
-     * Отправляет команду update.
-     */
-    private void sendUpdateCommand(String idArg) {
-        try {
-            int id = Integer.parseInt(idArg);
-            System.out.println("Введите новые данные элемента:");
-            SpaceMarine marine = inputManager.readMarineForUpdate();
-            UpdateCommand cmd = new UpdateCommand(id, marine);
-            sendAndReceive(cmd);
-        } catch (NumberFormatException e) {
-            System.out.println("Ошибка: id должен быть целым числом.");
-        }
+    private void sendUpdateCommand(String key) {
+        System.out.println("Введите новые данные элемента:");
+        SpaceMarine marine = inputManager.readMarineForUpdate();
+        UpdateCommand cmd = new UpdateCommand(currentUsername, currentPassword, key, marine);
+        sendAndReceive(cmd);
     }
 
-    /**
-     * Отправляет команду remove_key.
-     */
     private void sendRemoveCommand(String key) {
-        RemoveCommand cmd = new RemoveCommand(key);
+        RemoveCommand cmd = new RemoveCommand(currentUsername, currentPassword, key);
         sendAndReceive(cmd);
     }
 
-    /**
-     * Отправляет команду remove_greater.
-     */
     private void sendRemoveGreaterCommand() {
         System.out.println("Введите эталонный элемент:");
         SpaceMarine reference = inputManager.readNewMarine();
-        RemoveGreaterCommand cmd = new RemoveGreaterCommand(reference);
+        RemoveGreaterCommand cmd = new RemoveGreaterCommand(currentUsername, currentPassword, reference);
         sendAndReceive(cmd);
     }
 
-    /**
-     * Отправляет команду replace_if_greater.
-     */
     private void sendReplaceIfGreaterCommand(String key) {
         System.out.println("Введите новый элемент:");
         SpaceMarine newMarine = inputManager.readMarineForUpdate();
-        ReplaceIfGreaterCommand cmd = new ReplaceIfGreaterCommand(key, newMarine);
+        ReplaceIfGreaterCommand cmd = new ReplaceIfGreaterCommand(currentUsername, currentPassword, key, newMarine);
         sendAndReceive(cmd);
     }
 
-    /**
-     * Отправляет команду replace_if_lowe.
-     */
     private void sendReplaceIfLowerCommand(String key) {
         System.out.println("Введите новый элемент:");
         SpaceMarine newMarine = inputManager.readMarineForUpdate();
-        ReplaceIfLowerCommand cmd = new ReplaceIfLowerCommand(key, newMarine);
+        ReplaceIfLowerCommand cmd = new ReplaceIfLowerCommand(currentUsername, currentPassword, key, newMarine);
         sendAndReceive(cmd);
     }
 
-    /**
-     * Отправляет команду filter_by_category.
-     */
     private void sendFilterByCategoryCommand(String categoryArg) {
         try {
             AstartesCategory category = AstartesCategory.valueOf(categoryArg.toUpperCase());
-            FilterByCategoryCommand cmd = new FilterByCategoryCommand(category);
+            FilterByCategoryCommand cmd = new FilterByCategoryCommand(currentUsername, currentPassword, category);
             sendAndReceive(cmd);
         } catch (IllegalArgumentException e) {
             System.out.println("Ошибка: неверная категория. Доступные: DREADNOUGHT, AGGRESSOR, APOTHECARY");
         }
     }
 
-    /**
-     * Отправляет команду filter_contains_name.
-     */
     private void sendFilterContainsNameCommand(String substring) {
-        FilterContainsNameCommand cmd = new FilterContainsNameCommand(substring);
+        FilterContainsNameCommand cmd = new FilterContainsNameCommand(currentUsername, currentPassword, substring);
         sendAndReceive(cmd);
     }
 
-    /**
-     * Отправляет команду на сервер и получает ответ.
-     *
-     * @param command команда для отправки
-     */
-    private void sendAndReceive(Command command) {
+    private CommandResponse sendAndReceive(Command command) {
         for (int attempt = 1; attempt <= maxRetries; attempt++) {
             try {
-                // Сериализуем команду
                 byte[] sendData = Serializer.serialize(command);
                 DatagramPacket sendPacket = new DatagramPacket(
                         sendData, sendData.length,
@@ -364,35 +384,30 @@ public class Client {
                 );
                 socket.send(sendPacket);
 
-                // Ждём ответ
                 byte[] receiveBuffer = new byte[65507];
                 DatagramPacket receivePacket = new DatagramPacket(receiveBuffer, receiveBuffer.length);
                 socket.receive(receivePacket);
 
-                // Десериализуем ответ
                 byte[] actualData = new byte[receivePacket.getLength()];
                 System.arraycopy(receiveBuffer, 0, actualData, 0, receivePacket.getLength());
                 CommandResponse response = (CommandResponse) Serializer.deserialize(actualData);
 
-                // Выводим результат
-                System.out.println(response.getMessage());
-                return;
+                if (response.getMessage() != null && !response.getMessage().isEmpty()) {
+                    System.out.println(response.getMessage());
+                }
+                return response;
 
             } catch (SocketTimeoutException e) {
                 System.out.println("Попытка " + attempt + "/" + maxRetries + ": Сервер не отвечает.");
             } catch (IOException | ClassNotFoundException e) {
                 System.out.println("Ошибка при обмене данными: " + e.getMessage());
-                return;
+                return null;
             }
         }
         System.out.println("Не удалось получить ответ от сервера после " + maxRetries + " попыток.");
+        return null;
     }
 
-    /**
-     * Точка входа в клиентское приложение.
-     *
-     * @param args аргументы командной строки: host, port
-     */
     public static void main(String[] args) {
         String host = "localhost";
         int port = 8080;

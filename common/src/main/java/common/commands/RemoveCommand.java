@@ -1,35 +1,37 @@
 package common.commands;
+import common.AuthenticatedCommand;
 import common.Command;
 
 
 import java.io.Serializable;
 
 /**
- * Команда {@code remove_key} – запрос на удаление элемента из коллекции по ключу.
- * Содержит ключ элемента, который должен быть удалён из коллекции на сервере.
+ * Команда удаления элемента из коллекции по ключу.
+ * Требует авторизации. Содержит ключ удаляемого элемента.
  *
  * @author Kovalenko Vlad, 504673
- * @see Command
+ * @see AuthenticatedCommand
  */
-public class RemoveCommand implements Command, Serializable {
+public class RemoveCommand extends AuthenticatedCommand {
     private static final long serialVersionUID = 1L;
     private final String key;
 
     /**
-     * Создаёт команду удаления элемента по ключу.
+     * Конструктор команды удаления.
      *
-     * @param key ключ элемента для удаления
+     * @param username логин пользователя
+     * @param password пароль пользователя
+     * @param key      ключ удаляемого элемента
      */
-    public RemoveCommand(String key) {
+    public RemoveCommand(String username, String password, String key) {
+        super(username, password);
         this.key = key;
     }
 
     /**
-     * Возвращает ключ элемента для удаления.
+     * Возвращает ключ удаляемого элемента.
      *
-     * @return ключ
+     * @return ключ элемента
      */
-    public String getKey() {
-        return key;
-    }
+    public String getKey() { return key; }
 }

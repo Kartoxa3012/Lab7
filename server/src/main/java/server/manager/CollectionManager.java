@@ -1,237 +1,111 @@
 package server.manager;
 
 import common.model.SpaceMarine;
-import server.utility.CsvReader;
-import server.utility.CsvWriter;
+import server.dao.SpaceMarineDao;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
-import java.io.IOException;
+
 import java.time.LocalDateTime;
 import java.util.*;
+import java.util.concurrent.locks.ReadWriteLock;
+import java.util.concurrent.locks.ReentrantReadWriteLock;
 
-/**
- * Класс, управляющий коллекцией объектов SpaceMarine.
- * <p>
- * Хранит элементы в {@code Hashtable<String, SpaceMarine>}.
- * Предоставляет методы для доступа, поиска, генерации id, загрузки и сохранения.
- * </p>
- *
- * @author Kovalenko Vlad, 504673
- */
 public class CollectionManager {
     private static final Logger logger = LogManager.getLogger(CollectionManager.class);
-    /** Основное хранилище (ключ — строка, значение — объект). */
-    private final Hashtable<String, SpaceMarine> collection = new Hashtable<>();
-    /** Дата инициализации коллекции (создания менеджера). */
+
+    private final Map<String, SpaceMarine> cache = new HashMap<>();
+    private final ReadWriteLock lock = new ReentrantReadWriteLock();
+    private final SpaceMarineDao dao = new SpaceMarineDao();
     private final LocalDateTime initDate = LocalDateTime.now();
-    private String filePath;
 
-    public CollectionManager() {
-        logger.info("CollectionManager инициализирован");
-        logger.debug("Дата инициализации: {}", initDate);
+    public void loadFromDatabase() {
+        logger.info("Загрузка коллекции из базы данных...");
+        try {
+            List<SpaceMarine> list = dao.loadAll();
+            lock.writeLock().lock();
+            try {
+                cache.clear();
+                for (SpaceMarine marine : list) {
+                    cache.put(marine.getKey(), marine);
+                }
+            } finally {
+                lock.writeLock().unlock();
+            }
+            logger.info("Коллекция загружена. Загружено {} элементов", cache.size());
+        } catch (Exception e) {
+            logger.error("Ошибка загрузки коллекции: {}", e.getMessage());
+        }
     }
 
-
-    /**
-     * Возвращает всю коллекцию.
-     *
-     * @return Hashtable, содержащая все элементы
-     */
-    public Hashtable<String, SpaceMarine> getCollection() {
-        logger.trace("getCollection: возвращена коллекция (размер: {})", collection.size());
-        return collection;
+    public void addToCache(SpaceMarine marine) {
+        lock.writeLock().lock();
+        try {
+            cache.put(marine.getKey(), marine);
+            logger.debug("Элемент добавлен в кэш: key={}", marine.getKey());
+        } finally {
+            lock.writeLock().unlock();
+        }
     }
 
-    /**
-     * Возвращает дату инициализации коллекции.
-     *
-     * @return дата инициализации
-     */
+    public void removeFromCache(String key) {
+        lock.writeLock().lock();
+        try {
+            cache.remove(key);
+            logger.debug("Элемент удалён из кэша: key={}", key);
+        } finally {
+            lock.writeLock().unlock();
+        }
+    }
+
+    public SpaceMarine getFromCache(String key) {
+        lock.readLock().lock();
+        try {
+            return cache.get(key);
+        } finally {
+            lock.readLock().unlock();
+        }
+    }
+
+    public boolean containsKey(String key) {
+        lock.readLock().lock();
+        try {
+            return cache.containsKey(key);
+        } finally {
+            lock.readLock().unlock();
+        }
+    }
+
+    public List<SpaceMarine> getSortedValues() {
+        lock.readLock().lock();
+        try {
+            List<SpaceMarine> list = new ArrayList<>(cache.values());
+            Collections.sort(list);
+            logger.trace("Возвращено {} отсортированных элементов", list.size());
+            return list;
+        } finally {
+            lock.readLock().unlock();
+        }
+    }
+
+    public Map<String, SpaceMarine> getCollection() {
+        lock.readLock().lock();
+        try {
+            return new HashMap<>(cache);
+        } finally {
+            lock.readLock().unlock();
+        }
+    }
+
+    public int size() {
+        lock.readLock().lock();
+        try {
+            return cache.size();
+        } finally {
+            lock.readLock().unlock();
+        }
+    }
+
     public LocalDateTime getInitDate() {
         return initDate;
-    }
-
-    /**
-     * Возвращает количество элементов в коллекции.
-     *
-     * @return количество элементов
-     */
-    public int size() {
-        int size = collection.size();
-        logger.trace("size: текущий размер коллекции = {}", size);
-        return collection.size();
-    }
-
-    /**
-     * Возвращает элемент по ключу.
-     *
-     * @param key ключ
-     * @return элемент или null, если ключ отсутствует
-     */
-    public SpaceMarine getByKey(String key) {
-        SpaceMarine marine = collection.get(key);
-        if (marine == null) {
-            logger.debug("getByKey: элемент с ключом '{}' не найден", key);
-        } else {
-            logger.trace("getByKey: найден элемент с ключом '{}', id={}", key, marine.getId());
-        }
-        return marine;
-    }
-
-    /**
-     * Проверяет наличие ключа.
-     *
-     * @param key ключ
-     * @return true, если ключ существует
-     */
-    public boolean containsKey(String key) {
-        boolean exists = collection.containsKey(key);
-        logger.trace("containsKey: ключ '{}' {} в коллекции", key, exists ? "присутствует" : "отсутствует");
-        return exists;
-    }
-
-    /**
-     * Добавляет или заменяет элемент по ключу.
-     *
-     * @param key    ключ
-     * @param marine элемент
-     * @return предыдущее значение или null
-     */
-    public SpaceMarine put(String key, SpaceMarine marine) {
-        SpaceMarine previous = collection.get(key);
-        if (previous != null) {
-            logger.info("Замена элемента: ключ='{}', старый id={}, новый id={}, новое имя='{}'",
-                    key, previous.getId(), marine.getId(), marine.getName());
-        } else {
-            logger.debug("Добавление нового элемента: ключ='{}', id={}, имя='{}'",
-                    key, marine.getId(), marine.getName());
-        }
-
-        SpaceMarine result = collection.put(key, marine);
-        logger.debug("put: текущий размер коллекции = {}", collection.size());
-        return result;
-    }
-
-    /**
-     * Удаляет элемент по ключу.
-     *
-     * @param key ключ
-     * @return удалённый элемент или null
-     */
-    public SpaceMarine remove(String key) {
-        SpaceMarine removed = collection.remove(key);
-        if (removed != null) {
-            logger.info("Удалён элемент: ключ='{}', id={}, имя='{}'",
-                    key, removed.getId(), removed.getName());
-        } else {
-            logger.warn("Попытка удаления несуществующего ключа: '{}'", key);
-        }
-        logger.debug("remove: текущий размер коллекции = {}", collection.size());
-        return removed;
-    }
-
-    /**
-     * Очищает коллекцию.
-     */
-    public void clear() {
-        int oldSize = collection.size();
-        collection.clear();
-        logger.info("Коллекция очищена. Удалено {} элементов", oldSize);
-    }
-
-    /**
-     * Ищет ключ, под которым хранится элемент с заданным id.
-     *
-     * @param id идентификатор элемента
-     * @return ключ или null, если элемент не найден
-     */
-    public String findKeyById(Integer id) {
-        for (Map.Entry<String, SpaceMarine> entry : collection.entrySet()) {
-            if (entry.getValue().getId().equals(id)) {
-                logger.trace("findKeyById: id={} соответствует ключу '{}'", id, entry.getKey());
-                return entry.getKey();
-            }
-        }
-        logger.debug("findKeyById: элемент с id={} не найден", id);
-        return null;
-    }
-
-    /**
-     * Генерирует новый уникальный идентификатор.
-     * <p>
-     * Если коллекция пуста, возвращает 1, иначе максимальный id + 1.
-     * </p>
-     *
-     * @return новый уникальный id
-     */
-    public Integer generateId() {
-        if (collection.isEmpty()) {
-            logger.debug("generateId: коллекция пуста, возвращаем 1");
-            return 1;
-        }
-
-        int maxId = collection.values().stream()
-                .mapToInt(SpaceMarine::getId)
-                .max()
-                .getAsInt();
-
-        int newId = maxId + 1;
-        logger.debug("Сгенерирован новый id: максимальный id = {}, новый id = {}", maxId, newId);
-        return newId;
-    }
-
-    /**
-     * Возвращает все элементы коллекции, отсортированные согласно естественному порядку.
-     * <p>
-     * Порядок: сначала по убыванию health, затем по возрастанию name, затем по возрастанию id.
-     * </p>
-     *
-     * @return список отсортированных элементов
-     */
-    public List<SpaceMarine> sortedValues() {
-        List<SpaceMarine> list = new ArrayList<>(collection.values());
-        Collections.sort(list);
-        logger.trace("возвращено {} отсортированных элементов", list.size());
-        return list;
-    }
-
-    /**
-     * Загружает коллекцию из CSV-файла.
-     *
-     * @param filePath путь к файлу
-     */
-    public void loadFromFile(String filePath) {
-        this.filePath = filePath;
-        logger.info("Загрузка коллекции из файла: {}", filePath);
-
-        CsvReader.readCsv(filePath, this);
-        logger.info("Коллекция загружена. Загружено {} элементов", collection.size());
-    }
-
-    /**
-     * Сохраняет коллекцию в CSV-файл.
-     *
-     * @param filePath путь к файлу
-     */
-    public void saveToFile(String filePath) {
-        this.filePath = filePath;
-        logger.info("Сохранение коллекции в файл: {} (количество элементов: {})", filePath, collection.size());
-
-        try {
-            CsvWriter.writeCsv(filePath, this);
-            logger.info("Коллекция успешно сохранена в файл: {}", filePath);
-        } catch (IOException e) {
-            logger.error("Ошибка при сохранении коллекции в файл {}: {}", filePath, e.getMessage(), e);
-        }
-    }
-
-    public void setFilePath(String filePath) {
-        this.filePath = filePath;
-        logger.debug("Установлен путь к файлу: {}", filePath);
-    }
-
-    public String getFilePath() {
-        return filePath;
-
     }
 }

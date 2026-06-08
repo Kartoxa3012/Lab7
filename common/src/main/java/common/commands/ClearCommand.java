@@ -1,25 +1,26 @@
 package common.commands;
+import common.AuthenticatedCommand;
 import common.Command;
 
 import java.io.Serializable;
 
 /**
- * Команда {@code clear} – запрос на очистку коллекции.
- * Данная команда не содержит параметров, так как операция очистки
- * не требует дополнительных данных от клиента. Сервер, получив эту команду,
- * удаляет все элементы из коллекции.
+ * Команда очистки коллекции (удаляет только элементы текущего пользователя).
+ * Требует авторизации.
  *
  * @author Kovalenko Vlad, 504673
- * @see Command
+ * @see AuthenticatedCommand
  */
-public class ClearCommand implements Command, Serializable {
+public class ClearCommand extends AuthenticatedCommand {
     private static final long serialVersionUID = 1L;
 
     /**
-     * Создаёт команду очистки коллекции.
-     * Конструктор не принимает параметров, так как команда не требует данных.
+     * Конструктор команды очистки.
+     *
+     * @param username логин пользователя
+     * @param password пароль пользователя
      */
-    public ClearCommand() {
-        // пустой конструктор для десериализации
+    public ClearCommand(String username, String password) {
+        super(username, password);
     }
 }

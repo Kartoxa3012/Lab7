@@ -1,25 +1,29 @@
 package common.commands;
+import common.AuthenticatedCommand;
 import common.Command;
 
 import java.io.Serializable;
 
 /**
- * Команда {@code filter_contains_name} – запрос на фильтрацию элементов коллекции по подстроке в имени.
- * Содержит подстроку, которую сервер должен искать в именах элементов коллекции (без учёта регистра).
+ * Команда фильтрации элементов по подстроке в имени.
+ * Требует авторизации.
  *
  * @author Kovalenko Vlad, 504673
- * @see Command
+ * @see AuthenticatedCommand
  */
-public class FilterContainsNameCommand implements Command, Serializable {
+public class FilterContainsNameCommand extends AuthenticatedCommand {
     private static final long serialVersionUID = 1L;
     private final String substring;
 
     /**
-     * Создаёт команду фильтрации по подстроке в имени.
+     * Конструктор команды фильтрации по имени.
      *
-     * @param substring подстрока для поиска (регистр не важен)
+     * @param username  логин пользователя
+     * @param password  пароль пользователя
+     * @param substring подстрока для поиска
      */
-    public FilterContainsNameCommand(String substring) {
+    public FilterContainsNameCommand(String username, String password, String substring) {
+        super(username, password);
         this.substring = substring;
     }
 
@@ -28,7 +32,5 @@ public class FilterContainsNameCommand implements Command, Serializable {
      *
      * @return подстрока
      */
-    public String getSubstring() {
-        return substring;
-    }
+    public String getSubstring() { return substring; }
 }

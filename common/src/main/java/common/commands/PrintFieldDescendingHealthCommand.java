@@ -1,25 +1,26 @@
 package common.commands;
+import common.AuthenticatedCommand;
 import common.Command;
 
 import java.io.Serializable;
 
 /**
- * Команда {@code print_field_descending_health} – запрос на вывод значений здоровья
- * всех элементов коллекции в порядке убывания.
- * Данная команда не содержит параметров. Сервер, получив эту команду,
- * должен вернуть список значений {@code health} всех элементов,
- * отсортированный по убыванию.
+ * Команда вывода значений здоровья всех элементов в порядке убывания.
+ * Требует авторизации.
  *
  * @author Kovalenko Vlad, 504673
- * @see Command
+ * @see AuthenticatedCommand
  */
-public class PrintFieldDescendingHealthCommand implements Command, Serializable {
+public class PrintFieldDescendingHealthCommand extends AuthenticatedCommand {
     private static final long serialVersionUID = 1L;
 
     /**
-     * Создаёт команду запроса значений здоровья в порядке убывания.
+     * Конструктор команды вывода здоровья.
+     *
+     * @param username логин пользователя
+     * @param password пароль пользователя
      */
-    public PrintFieldDescendingHealthCommand() {
-        // пустой конструктор для десериализации
+    public PrintFieldDescendingHealthCommand(String username, String password) {
+        super(username, password);
     }
 }

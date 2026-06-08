@@ -1,49 +1,48 @@
 package common.commands;
+import common.AuthenticatedCommand;
 import common.Command;
 import common.model.SpaceMarine;
 
 import java.io.Serializable;
 
 /**
- * Команда {@code update} – запрос на обновление элемента коллекции по его идентификатору.
- * Содержит идентификатор {@code id} элемента для обновления и новый объект
- * {@link SpaceMarine} (без id и даты создания, так как эти поля копируются со старого элемента на сервере).
+ * Команда обновления существующего элемента коллекции.
+ * Требует авторизации. Содержит ключ и новый объект SpaceMarine.
  *
  * @author Kovalenko Vlad, 504673
- * @see Command
+ * @see AuthenticatedCommand
  * @see SpaceMarine
  */
-public class UpdateCommand implements Command, Serializable {
+public class UpdateCommand extends AuthenticatedCommand {
     private static final long serialVersionUID = 1L;
-    private final int id;
+    private final String key;
     private final SpaceMarine marine;
 
     /**
-     * Создаёт команду обновления элемента.
+     * Конструктор команды обновления.
      *
-     * @param id     идентификатор элемента для обновления
-     * @param marine новый объект {@link SpaceMarine} (id и creationDate будут скопированы со старого)
+     * @param username логин пользователя
+     * @param password пароль пользователя
+     * @param key      ключ обновляемого элемента
+     * @param marine   новый объект SpaceMarine (id и дата будут скопированы со старого)
      */
-    public UpdateCommand(int id, SpaceMarine marine) {
-        this.id = id;
+    public UpdateCommand(String username, String password, String key, SpaceMarine marine) {
+        super(username, password);
+        this.key = key;
         this.marine = marine;
     }
 
     /**
-     * Возвращает идентификатор элемента для обновления.
+     * Возвращает ключ обновляемого элемента.
      *
-     * @return id
+     * @return ключ элемента
      */
-    public int getId() {
-        return id;
-    }
+    public String getKey() { return key; }
 
     /**
-     * Возвращает новый объект {@link SpaceMarine} для обновления.
+     * Возвращает новый объект SpaceMarine.
      *
-     * @return новый SpaceMarine (без id и даты)
+     * @return объект SpaceMarine
      */
-    public SpaceMarine getMarine() {
-        return marine;
-    }
+    public SpaceMarine getMarine() { return marine; }
 }

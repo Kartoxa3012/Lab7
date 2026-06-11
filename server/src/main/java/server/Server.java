@@ -1,9 +1,10 @@
 package server;
 
+import common.Command;
+import common.CommandResponse;
 import server.connection.ConnectionAcceptor;
 import server.manager.CollectionManager;
 import server.manager.CommandHandler;
-import server.processing.RequestProcessor;
 import server.processing.ResponseQueue;
 import server.request.RequestReader;
 import server.response.ResponseSender;
@@ -11,60 +12,52 @@ import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 import java.io.IOException;
+import java.net.SocketAddress;
 import java.nio.channels.SelectionKey;
 import java.nio.channels.Selector;
 import java.util.Iterator;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
 
-/**
- * Главный класс сервера.
- * Реализует многопоточную обработку запросов:
- * - Cached thread pool для приёма
- * - Создание нового потока для обработки каждой команды
- * - Fixed thread pool для отправки ответов
- *
- * @author Kovalenko Vlad, 504673
- */
 public class Server {
     private static final Logger logger = LogManager.getLogger(Server.class);
 
     private final int port;
     private ConnectionAcceptor connectionAcceptor;
     private RequestReader requestReader;
-    private RequestProcessor requestProcessor;
-    private ResponseSender responseSender;
     private ResponseQueue responseQueue;
+    private ResponseSender responseSender;
     private CollectionManager collectionManager;
+    private CommandHandler commandHandler;
     private boolean running;
+
+    // Многопоточность
+    private final ExecutorService readerPool;
+    private final ExecutorService senderPool;
 
     public Server(int port) {
         this.port = port;
         this.running = true;
+        this.readerPool = Executors.newCachedThreadPool();
+        this.senderPool = Executors.newFixedThreadPool(4);
         logger.info("Создание сервера: порт={}", port);
     }
 
     private void init() throws IOException {
         logger.info("Инициализация сервера...");
 
-        // Загрузка коллекции из БД
         collectionManager = new CollectionManager();
         collectionManager.loadFromDatabase();
 
-        // Модуль приёма подключений
         connectionAcceptor = new ConnectionAcceptor(port);
         connectionAcceptor.start();
 
-        // Модуль чтения запроса
         requestReader = new RequestReader();
-
-        // Очередь ответов
         responseQueue = new ResponseQueue();
 
-        // Модуль обработки команд (создаёт новые потоки)
-        CommandHandler commandHandler = new CommandHandler(collectionManager);
-        requestProcessor = new RequestProcessor(commandHandler, responseQueue);
+        commandHandler = new CommandHandler(collectionManager);
 
-        // Модуль отправки ответов (FixedThreadPool)
-        responseSender = new ResponseSender(connectionAcceptor.getChannel(), responseQueue, 4);
+        responseSender = new ResponseSender(connectionAcceptor.getChannel(), responseQueue, senderPool);
         responseSender.start();
 
         logger.info("Инициализация сервера завершена");
@@ -87,10 +80,36 @@ public class Server {
                     keyIterator.remove();
 
                     if (key.isReadable()) {
-                        if (requestReader.read(connectionAcceptor.getChannel())) {
-                            // Передаём запрос в обработчик (асинхронно)
-                            requestProcessor.processRequest(requestReader.getCommand(), requestReader.getClientAddress());
-                        }
+                        //1 пункт
+                        readerPool.submit(() -> {
+                            try {
+                                logger.debug("Чтение запроса в потоке: {}", Thread.currentThread().getName());
+
+                                if (requestReader.read(connectionAcceptor.getChannel())) {
+                                    Command command = requestReader.getCommand();
+                                    SocketAddress clientAddress = requestReader.getClientAddress();
+
+                                    // 2 пункт
+                                    Thread handlerThread = new Thread(() -> {
+                                        logger.debug("Обработка команды {} в потоке: {}",
+                                                command.getClass().getSimpleName(), Thread.currentThread().getName());
+
+                                        long startTime = System.currentTimeMillis();
+                                        CommandResponse response = commandHandler.handle(command);
+                                        long elapsedTime = System.currentTimeMillis() - startTime;
+
+                                        logger.info("Команда {} обработана за {} мс",
+                                                command.getClass().getSimpleName(), elapsedTime);
+
+
+                                        responseQueue.add(response, clientAddress);
+                                    });
+                                    handlerThread.start();
+                                }
+                            } catch (IOException e) {
+                                logger.error("Ошибка чтения запроса: {}", e.getMessage());
+                            }
+                        });
                     }
                 }
             }
@@ -105,9 +124,9 @@ public class Server {
         logger.info("Остановка сервера...");
         running = false;
 
-        if (requestProcessor != null) {
-            requestProcessor.shutdown();
-        }
+        readerPool.shutdown();
+        senderPool.shutdown();
+
         if (responseSender != null) {
             responseSender.shutdown();
         }

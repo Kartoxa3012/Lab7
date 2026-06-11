@@ -21,8 +21,8 @@ public class PgPassReader {
     /**
      * Загружает учетные данные для подключения к PostgreSQL из .pgpass файла.
      *
-     * @param host     хост базы данных (например, localhost)
-     * @param port     порт базы данных (обычно 5432)
+     * @param host     хост базы данных
+     * @param port     порт базы данных
      * @param database имя базы данных
      * @return массив [username, password] или пустой массив, если не найдено
      */

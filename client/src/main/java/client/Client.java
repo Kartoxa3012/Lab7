@@ -410,9 +410,9 @@ public class Client {
 
     public static void main(String[] args) {
         String host = "localhost";
-        int port = 8080;
-        int timeout = 5000;
-        int maxRetries = 3;
+        int port = 8091;
+        int timeout = 10000;
+        int maxRetries = 5;
 
         if (args.length >= 2) {
             host = args[0];

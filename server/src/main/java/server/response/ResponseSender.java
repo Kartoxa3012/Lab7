@@ -25,7 +25,6 @@ public class ResponseSender {
         this.channel = channel;
         this.responseQueue = responseQueue;
         this.sendingPool = sendingPool;
-        logger.info("ResponseSender инициализирован с FixedThreadPool");
     }
 
     public void start() {
@@ -34,35 +33,32 @@ public class ResponseSender {
             while (running) {
                 try {
                     ResponseQueue.ResponseTask task = responseQueue.take();
-                    // 3 пункт
                     sendingPool.submit(() -> send(task.getResponse(), task.getClientAddress()));
                 } catch (InterruptedException e) {
-                    logger.info("Dispatcher поток прерван");
                     Thread.currentThread().interrupt();
                     break;
                 }
             }
-            logger.info("Dispatcher поток завершён");
         });
-        dispatcherThread.setDaemon(false);
         dispatcherThread.start();
     }
 
     private void send(CommandResponse response, SocketAddress clientAddress) {
         try {
             byte[] data = Serializer.serialize(response);
+            logger.info("отправка: адрес={}, размер={} байт", clientAddress, data.length);
             buffer.clear();
             buffer.put(data);
             buffer.flip();
-            channel.send(buffer, clientAddress);
-            logger.debug("Ответ отправлен {}: {} байт", clientAddress, data.length);
+            int sent = channel.send(buffer, clientAddress);
+            logger.info("отправлено: {} байт", sent);
         } catch (IOException e) {
-            logger.error("Ошибка отправки ответа {}: {}", clientAddress, e.getMessage());
+            logger.error("Ошибка отправки ответа {}: {}", clientAddress, e.getMessage(), e);
         }
     }
 
     public void shutdown() {
-        logger.info("Завершение ResponseSender...");
         running = false;
+        sendingPool.shutdown();
     }
 }

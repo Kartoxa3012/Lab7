@@ -16,7 +16,7 @@ public class CollectionManager {
     private final LocalDateTime initDate = LocalDateTime.now();
 
     public void loadFromDatabase() {
-        logger.info("Загрузка коллекции из базы данных...");
+        logger.info("Загрузка коллекции из базы данных");
         try {
             List<SpaceMarine> list = dao.loadAll();
             cache.clear();

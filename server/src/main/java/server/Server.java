@@ -19,6 +19,10 @@ import java.util.Iterator;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 
+/**
+ * Главный класс сервера.
+ * @author Kovalenko Vlad, 504673
+ */
 public class Server {
     private static final Logger logger = LogManager.getLogger(Server.class);
 
@@ -67,7 +71,7 @@ public class Server {
         logger.info("Запуск сервера...");
         try {
             init();
-            logger.info("Сервер запущен на порту {}, ожидание запросов...", port);
+            logger.info("Сервер запущен на порту {}, ожидание запросов", port);
 
             Selector selector = connectionAcceptor.getSelector();
 
@@ -83,7 +87,7 @@ public class Server {
                         //1 пункт
                         readerPool.submit(() -> {
                             try {
-                                logger.debug("Чтение запроса в потоке: {}", Thread.currentThread().getName());
+                                logger.debug("Чтение запроса:");
 
                                 if (requestReader.read(connectionAcceptor.getChannel())) {
                                     Command command = requestReader.getCommand();
@@ -142,12 +146,12 @@ public class Server {
     }
 
     public static void main(String[] args) {
-        int port = 8080;
+        int port = 8091;
         if (args.length > 0) {
             try {
                 port = Integer.parseInt(args[0]);
             } catch (NumberFormatException e) {
-                System.err.println("Неверный порт, используется 8080");
+                System.err.println("Неверный порт, используется 8091");
             }
         }
 
